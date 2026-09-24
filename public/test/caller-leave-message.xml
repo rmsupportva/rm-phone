@@ -1,10 +1,9 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
-<!-- Automated TEST caller for the RM phone system: waits through the closed
-     message and the greeting, leaves a short spoken message, hangs up.
+<!-- Automated TEST caller for the RM phone system: starts talking shortly after the
+     greeting begins and keeps talking past the beep, so a message is recorded.
      Only ever dialled at our own test number. -->
 <Response>
-  <Pause length="20"/>
-  <Say>This is an automated test message from the R M phone system test. Please ignore it.</Say>
-  <Pause length="2"/>
+  <Pause length="8"/>
+  <Say>This is an automated test message from the R M phone system test. Please ignore it. This is an automated test message from the R M phone system test. Please ignore it. Thank you, goodbye.</Say>
   <Hangup/>
 </Response>
