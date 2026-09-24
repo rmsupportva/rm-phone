@@ -55,7 +55,8 @@ export function scriptFor(call: Call, effects: Effect[], now: number, maxVoicema
   switch (call.state) {
     case "menu": {
       // A re-render (no new prompt this step) repeats the current menu.
-      const menuPrompt: PromptId = call.menuStep === "language" ? "welcome_language" : "main_menu";
+      const menuPrompt: PromptId =
+        call.menuStep === "language" ? "welcome_language" : call.menuStep === "callback_offer" ? "callback_offer" : "main_menu";
       const spoken = prompts.length ? prompts : [menuPrompt];
       const remaining = call.deadline ? Math.ceil((call.deadline.at - now) / 1000) : 0;
       return [...spoken.map(say), { kind: "gather", timeoutSec: Math.max(1, remaining + 1) }];

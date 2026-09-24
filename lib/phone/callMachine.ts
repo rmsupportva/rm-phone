@@ -148,6 +148,14 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
     case "caller_pressed": {
       if (call.state !== "menu") return unchanged;
       const digit = input.digit;
+      if (call.menuStep === "callback_offer") {
+        if (digit === "1") requestCallback(call, ctx, fx);
+        else {
+          log(call, now, "menu_choice", `Pressed ${digit}: no callback`);
+          goToVoicemail(call, ctx, fx);
+        }
+        return { call, effects: fx };
+      }
       if (call.menuStep === "language") {
         if (digit !== "1" && digit !== "2") {
           log(call, now, "menu_invalid_key", digit);
@@ -330,6 +338,11 @@ function onTimer(call: Call, kind: TimerKind, ctx: MachineContext, fx: Effect[])
   const { now } = ctx;
   switch (kind) {
     case "menu":
+      if (call.menuStep === "callback_offer") {
+        log(call, now, "menu_choice", "No key pressed: leave a message");
+        goToVoicemail(call, ctx, fx);
+        return;
+      }
       if (call.menuStep === "language") {
         chooseLanguage(call, "en", ctx, fx, "No key pressed: English");
       } else {
@@ -408,6 +421,15 @@ function enterQueue(call: Call, ctx: MachineContext, fx: Effect[]) {
 
   if (targets.length === 0) {
     log(call, ctx.now, "nobody_available", `No one available in ${queue.name}`);
+    if (queue.callbackOffer) {
+      // Old phone: "press 1 for a callback", one key, 6 seconds.
+      call.state = "menu";
+      call.menuStep = "callback_offer";
+      play(fx, "callback_offer", call.lang);
+      setDeadline(call, "menu", ctx.now, ctx.settings.callbackOfferSeconds);
+      log(call, ctx.now, "menu", "Callback offer");
+      return;
+    }
     goToVoicemail(call, ctx, fx, "all_busy");
     return;
   }
@@ -415,6 +437,15 @@ function enterQueue(call: Call, ctx: MachineContext, fx: Effect[]) {
   play(fx, "please_hold", call.lang);
   startRinging(call, ctx, fx, targets, queue.ringSeconds);
   log(call, ctx.now, "ringing", `${targets.length} agent${targets.length === 1 ? "" : "s"}`);
+}
+
+/** The caller asked to be called back: save it, thank them, end the call (old phone: completed). */
+function requestCallback(call: Call, ctx: MachineContext, fx: Effect[]) {
+  fx.push({ type: "create_callback", source: "caller_requested", from: call.from, lang: call.lang });
+  play(fx, "callback_confirmed", call.lang);
+  fx.push({ type: "hang_up_caller" });
+  log(call, ctx.now, "callback_requested", "Pressed 1: call me back");
+  end(call, ctx.now, "completed", fx);
 }
 
 function goToVoicemail(call: Call, ctx: MachineContext, fx: Effect[], reason?: PromptId) {

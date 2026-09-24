@@ -17,6 +17,8 @@ const PROMPT_LABEL: Record<PromptId, string> = {
   all_busy: "Everyone busy",
   voicemail_greeting: "Voicemail greeting",
   please_hold: "Please hold",
+  callback_offer: "Callback offer (nobody free)",
+  callback_confirmed: "Callback confirmed",
 };
 
 const longDate = new Intl.DateTimeFormat("en-US", {

@@ -72,7 +72,8 @@ export type CallState =
   | "parked" // caller on hold with no agent; anyone can pick them up
   | "ended";
 
-export type MenuStep = "language" | "main";
+/** "callback_offer": nobody is free and the line offers "press 1 for a callback". */
+export type MenuStep = "language" | "main" | "callback_offer";
 
 export type EndReason =
   | "completed" // a conversation happened
@@ -233,7 +234,9 @@ export type PromptId =
   | "early_close"
   | "all_busy"
   | "voicemail_greeting"
-  | "please_hold";
+  | "please_hold"
+  | "callback_offer"
+  | "callback_confirmed";
 
 /** What the machine asks the outside world (the carrier, the app) to do. */
 export type Effect =
@@ -251,6 +254,8 @@ export type Effect =
   | { type: "hang_up_caller" }
   | { type: "hang_up_agent"; agentId: string }
   | { type: "set_presence"; agentId: string; presence: Presence }
+  /** Save a callback request for the team (old phone: callbacks row, due now, unassigned). */
+  | { type: "create_callback"; source: "caller_requested" | "menu"; from: string; lang: Lang }
   | { type: "hold_caller" }
   | { type: "unhold_caller" }
   /** Put another agent into the live call (transfer target, VA). */

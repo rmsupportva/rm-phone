@@ -24,6 +24,11 @@ export interface QueueSettings {
   name: string;
   /** How long every available agent rings before the caller goes to voicemail. */
   ringSeconds: number;
+  /**
+   * Old phone "callback offer" (off by default): when nobody at all can be
+   * rung, the caller may press 1 to be called back instead of waiting.
+   */
+  callbackOffer?: boolean;
 }
 
 export interface PhoneSettings {
@@ -32,6 +37,8 @@ export interface PhoneSettings {
   queue: QueueSettings;
   /** Seconds to wait for a key press at each menu step. */
   menuSeconds: number;
+  /** How long the caller has to press 1 for a callback (old phone: 6 s). */
+  callbackOfferSeconds: number;
   /** Longest voicemail a caller can leave. */
   voicemailMaxSeconds: number;
   /** Time allowed for the greeting to play before recording starts. */
@@ -86,6 +93,7 @@ export const DEMO_SETTINGS: PhoneSettings = {
   },
   queue: { id: "screening", name: "Screening queue", ringSeconds: 30 },
   menuSeconds: 15,
+  callbackOfferSeconds: 6,
   voicemailMaxSeconds: 120,
   voicemailGreetingSeconds: 10,
   dialSeconds: 45,
@@ -129,5 +137,13 @@ export const PROMPTS: Record<PromptId, Record<Lang, string>> = {
   please_hold: {
     en: "Please hold while we connect you.",
     es: "Por favor espere mientras le conectamos.",
+  },
+  callback_offer: {
+    en: "All of our agents are currently busy. Press 1 for a callback, or stay on the line to leave a message.",
+    es: "Todos nuestros agentes están ocupados. Oprima 1 para que le devolvamos la llamada, o permanezca en la línea para dejar un mensaje.",
+  },
+  callback_confirmed: {
+    en: "Thank you. We'll call you back as soon as we can. Goodbye.",
+    es: "Gracias. Le devolveremos la llamada lo antes posible. Adiós.",
   },
 };

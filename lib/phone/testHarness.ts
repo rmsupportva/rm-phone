@@ -4,7 +4,7 @@
  * the engine does. Used by the *.test.ts files only.
  */
 import { startInbound, startOutbound, step, type MachineContext } from "./callMachine";
-import { DEMO_SETTINGS } from "./settings";
+import { DEMO_SETTINGS, type PhoneSettings } from "./settings";
 import type { Agent, Call, CallInput, Effect } from "./types";
 
 export const OPEN = Date.parse("2026-09-22T11:00:00-04:00"); // Tuesday 11:00
@@ -18,10 +18,10 @@ export const agents = (): Agent[] => [
   { id: "c", name: "C", presence: "away", speaksSpanish: false, queueIds: ["screening"] },
 ];
 
-export function harness(start = OPEN, team = agents()) {
+export function harness(start = OPEN, team = agents(), settings: PhoneSettings = DEMO_SETTINGS) {
   let now = start;
   let effects: Effect[] = [];
-  const ctx = (): MachineContext => ({ now, settings: DEMO_SETTINGS, agents: team });
+  const ctx = (): MachineContext => ({ now, settings, agents: team });
   const applyPresence = (fx: Effect[]) => {
     for (const e of fx) {
       if (e.type === "set_presence") {
