@@ -10,7 +10,7 @@
  * set on insert only and never overwritten.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Agent, Call, EndReason, Presence, TimelineEntry, TimerKind } from "../types";
+import type { Agent, AgentForward, Call, EndReason, Presence, TimelineEntry, TimerKind } from "../types";
 import type { CallsTable, StoredCall } from "./callRunner";
 
 /** phone_calls.result: what the screens show for a finished call. */
@@ -79,15 +79,31 @@ export function presenceFromRow(state: string): Presence {
  * main line for now; names are the part of the email before the @.
  */
 export async function loadTeam(db: SupabaseClient, queueId: string): Promise<Agent[]> {
-  const { data, error } = await db.from("phone_presence").select("agent_email, state");
+  const { data, error } = await db.from("phone_presence").select("agent_email, state, forward_to, forward_after_s");
   if (error) throw new Error(`load team: ${error.message}`);
-  return (data ?? []).map((r: { agent_email: string; state: string }) => ({
+  return (data ?? []).map((r: PresenceRow) => ({
     id: r.agent_email,
     name: r.agent_email.split("@")[0],
     presence: presenceFromRow(r.state),
     speaksSpanish: false,
     queueIds: [queueId],
+    ...(forwardFromRow(r) && { forward: forwardFromRow(r) }),
   }));
+}
+
+interface PresenceRow {
+  agent_email: string;
+  state: string;
+  forward_to: string | null;
+  forward_after_s: number | null;
+}
+
+/** Old phone default: forward after 15 s, clamped to 0–120 s. */
+export function forwardFromRow(r: Pick<PresenceRow, "forward_to" | "forward_after_s">): AgentForward | undefined {
+  const to = r.forward_to?.trim();
+  if (!to) return undefined;
+  const after = Math.min(120, Math.max(0, r.forward_after_s ?? 15));
+  return { to, afterSec: after, parallel: false };
 }
 
 export function supabaseCallsTable(db: SupabaseClient): CallsTable {

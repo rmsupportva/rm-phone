@@ -43,6 +43,7 @@ export function cloneCall(c: Call): Call {
     timeline: [...c.timeline],
     ...(c.deadline && { deadline: { ...c.deadline } }),
     ...(c.participants && { participants: [...c.participants] }),
+    ...(c.pendingForwards && { pendingForwards: c.pendingForwards.map((f) => ({ ...f })) }),
     ...(c.transfer && {
       transfer: { ...c.transfer, target: { ...c.transfer.target }, ringingAgentIds: [...c.transfer.ringingAgentIds] },
     }),
@@ -112,20 +113,82 @@ export function ringHeldCall(call: Call, ctx: MachineContext, fx: Effect[]) {
     return;
   }
   holdCaller(call, fx);
-  call.state = "ringing";
-  call.ringingAgentIds = targets;
   call.declinedAgentIds = [];
-  fx.push({ type: "ring", agentIds: targets });
-  setDeadline(call, "ring", ctx.now, queue.ringSeconds);
+  startRinging(call, ctx, fx, targets, queue.ringSeconds);
   log(call, ctx.now, "ringing", `${targets.length} agent${targets.length === 1 ? "" : "s"} (caller on hold)`);
+}
+
+/**
+ * Ring these agents for `seconds`, each on their browser and/or own phone as
+ * their forwarding says (see AgentForward). Own phones that join later are
+ * kept in `pendingForwards`; the one "ring" deadline wakes up for each of them
+ * and finally for the end of the ring.
+ */
+export function startRinging(call: Call, ctx: MachineContext, fx: Effect[], targets: string[], seconds: number) {
+  const now = ctx.now;
+  const browsers: string[] = [];
+  const pending: { agentId: string; to: string; at: number }[] = [];
+  for (const id of targets) {
+    const fwd = ctx.agents.find((a) => a.id === id)?.forward;
+    if (!fwd) {
+      browsers.push(id);
+    } else if (fwd.parallel) {
+      browsers.push(id);
+      fx.push({ type: "ring_external_for_agent", agentId: id, to: fwd.to });
+    } else if (fwd.afterSec <= 0) {
+      fx.push({ type: "ring_external_for_agent", agentId: id, to: fwd.to });
+    } else if (fwd.afterSec >= seconds) {
+      browsers.push(id);
+    } else {
+      browsers.push(id);
+      pending.push({ agentId: id, to: fwd.to, at: now + fwd.afterSec * 1000 });
+    }
+  }
+  call.state = "ringing";
+  call.ringingAgentIds = [...targets];
+  call.ringEndsAt = now + seconds * 1000;
+  call.pendingForwards = pending.length ? pending : undefined;
+  if (browsers.length) fx.push({ type: "ring", agentIds: browsers });
+  armRingDeadline(call);
+}
+
+/** The ring deadline is the next forward that falls due, or the end of the ring. */
+export function armRingDeadline(call: Call) {
+  const ends = call.ringEndsAt ?? 0;
+  const next = Math.min(ends, ...(call.pendingForwards ?? []).map((f) => f.at));
+  call.deadline = { kind: "ring", at: next };
+}
+
+/**
+ * The "ring" deadline fired: start any own-phone forwards that are due.
+ * Returns true if the ring is still going (more to come), false if it has run out.
+ */
+export function advanceRing(call: Call, ctx: MachineContext, fx: Effect[]): boolean {
+  const due = (call.pendingForwards ?? []).filter((f) => f.at <= ctx.now);
+  for (const f of due) {
+    fx.push({ type: "ring_external_for_agent", agentId: f.agentId, to: f.to });
+    log(call, ctx.now, "forwarded", agentName(ctx, f.agentId));
+  }
+  const left = (call.pendingForwards ?? []).filter((f) => f.at > ctx.now);
+  call.pendingForwards = left.length ? left : undefined;
+  if (call.ringEndsAt !== undefined && ctx.now < call.ringEndsAt) {
+    armRingDeadline(call);
+    return true;
+  }
+  return false;
+}
+
+/** Stop everyone still ringing for this call (browsers and own phones). */
+export function stopRinging(call: Call, fx: Effect[]) {
+  if (call.ringingAgentIds.length) fx.push({ type: "stop_ringing", agentIds: call.ringingAgentIds });
+  call.ringingAgentIds = [];
+  call.pendingForwards = undefined;
+  call.ringEndsAt = undefined;
 }
 
 /** Park: caller on hold with no agent; anyone can pick them up. */
 export function parkCall(call: Call, ctx: MachineContext, fx: Effect[], byAgentId?: string) {
-  if (call.ringingAgentIds.length) {
-    fx.push({ type: "stop_ringing", agentIds: call.ringingAgentIds });
-    call.ringingAgentIds = [];
-  }
+  stopRinging(call, fx);
   holdCaller(call, fx);
   call.state = "parked";
   call.agentId = undefined;
@@ -155,10 +218,7 @@ export function clearSideLegs(call: Call, fx: Effect[]) {
 }
 
 export function end(call: Call, now: number, reason: EndReason, fx: Effect[]) {
-  if (call.ringingAgentIds.length) {
-    fx.push({ type: "stop_ringing", agentIds: call.ringingAgentIds });
-    call.ringingAgentIds = [];
-  }
+  stopRinging(call, fx);
   clearSideLegs(call, fx);
   for (const p of call.participants ?? []) {
     fx.push({ type: "hang_up_agent", agentId: p });

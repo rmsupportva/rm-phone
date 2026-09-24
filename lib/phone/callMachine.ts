@@ -25,6 +25,8 @@ import { evaluateHours } from "./hours";
 import { stepInCall } from "./inCall";
 import {
   END_REASON_LABEL,
+  advanceRing,
+  armRingDeadline,
   cloneCall,
   end,
   log,
@@ -32,6 +34,8 @@ import {
   pastMaxCall,
   play,
   setDeadline,
+  startRinging,
+  stopRinging,
   unholdCaller,
   type MachineContext,
   type StepResult,
@@ -164,6 +168,8 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
       if (others.length) fx.push({ type: "stop_ringing", agentIds: others });
       const pickedUpAgain = call.answeredAt !== undefined; // a parked / handed-off caller
       call.ringingAgentIds = [];
+      call.pendingForwards = undefined;
+      call.ringEndsAt = undefined;
       call.state = "answered";
       call.answeredAt ??= now;
       call.agentId = input.agentId;
@@ -184,6 +190,11 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
       }
       call.ringingAgentIds = call.ringingAgentIds.filter((a) => a !== input.agentId);
       call.declinedAgentIds.push(input.agentId);
+      if (call.pendingForwards) {
+        const left = call.pendingForwards.filter((f) => f.agentId !== input.agentId);
+        call.pendingForwards = left.length ? left : undefined;
+        if (call.ringingAgentIds.length) armRingDeadline(call);
+      }
       fx.push({ type: "stop_ringing", agentIds: [input.agentId] });
       const name = ctx.agents.find((a) => a.id === input.agentId)?.name ?? input.agentId;
       log(call, now, input.type === "agent_declined" ? "declined" : "agent_left", name);
@@ -298,6 +309,7 @@ function onTimer(call: Call, kind: TimerKind, ctx: MachineContext, fx: Effect[])
       }
       return;
     case "ring":
+      if (advanceRing(call, ctx, fx)) return; // an own-phone forward fell due; still ringing
       if (call.answeredAt !== undefined) {
         // Someone already talked to this caller: never voicemail. Park them.
         if (pastMaxCall(call, ctx)) {
@@ -365,19 +377,13 @@ function enterQueue(call: Call, ctx: MachineContext, fx: Effect[]) {
     return;
   }
 
-  call.state = "ringing";
-  call.ringingAgentIds = targets;
   play(fx, "please_hold", call.lang);
-  fx.push({ type: "ring", agentIds: targets });
-  setDeadline(call, "ring", ctx.now, queue.ringSeconds);
+  startRinging(call, ctx, fx, targets, queue.ringSeconds);
   log(call, ctx.now, "ringing", `${targets.length} agent${targets.length === 1 ? "" : "s"}`);
 }
 
 function goToVoicemail(call: Call, ctx: MachineContext, fx: Effect[], reason?: PromptId) {
-  if (call.ringingAgentIds.length) {
-    fx.push({ type: "stop_ringing", agentIds: call.ringingAgentIds });
-    call.ringingAgentIds = [];
-  }
+  stopRinging(call, fx);
   call.state = "voicemail";
   call.menuStep = undefined;
   if (reason) play(fx, reason, call.lang);

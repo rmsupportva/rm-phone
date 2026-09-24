@@ -252,7 +252,15 @@ describe("safety rules hold for ANY sequence of events", () => {
       const rand = rng(seed);
       const starts = [OPEN, CLOSED, HOLIDAY, AFTER_CANDLES];
       // C is sometimes available, so transfers and adding a VA have someone to ring.
-      const team = agents().map((a) => (a.id === "c" && rand() < 0.6 ? { ...a, presence: "available" as const } : a));
+      const fwdRoll = rand();
+      const team = agents().map((a) => {
+        if (a.id === "c" && rand() < 0.6) return { ...a, presence: "available" as const };
+        // B sometimes forwards to their own phone: at once, after a delay, or in parallel.
+        if (a.id === "b" && fwdRoll < 0.5) {
+          return { ...a, forward: { to: "+18455550177", afterSec: fwdRoll < 0.15 ? 0 : 10, parallel: fwdRoll > 0.35 } };
+        }
+        return a;
+      });
       const h = harness(starts[Math.floor(rand() * starts.length)], team);
       if (rand() < 0.75) h.inbound();
       else h.outbound();
@@ -270,6 +278,7 @@ describe("safety rules hold for ANY sequence of events", () => {
         if (c.participants) seen.add("three-way");
         if (c.state === "ended") seen.add(`ended ${c.endReason}`);
         if (c.state === "ringing" && c.answeredAt !== undefined) seen.add("re-ringing a held caller");
+        if (c.timeline.some((t) => t.kind === "forwarded")) seen.add("forwarded to own phone");
         const broken = brokenRule(c, everAnswered);
         if (broken) expect.fail(`seed ${seed}, step ${i}, state ${c.state}: ${broken}`);      }
     }
@@ -280,6 +289,7 @@ describe("safety rules hold for ANY sequence of events", () => {
       "transfer consulting",
       "three-way",
       "re-ringing a held caller",
+      "forwarded to own phone",
       "ended transferred",
       "ended voicemail",
       "ended timed_out",
@@ -318,6 +328,8 @@ function brokenRule(c: Call, everAnswered: boolean): string | null {
   if (c.state === "ended" && (c.transfer || c.inviting || c.participants || c.onHold !== undefined)) {
     return "an ended call left a transfer, invite, extra person or hold behind";
   }
+  // 6. Own-phone forwards only wait while the call is ringing.
+  if (c.state !== "ringing" && (c.pendingForwards || c.ringEndsAt !== undefined)) return "forwarding left over after the ring";
   // 5. A parked caller is on hold with no agent; transfers and invites only exist mid-call.
   if (c.state === "parked" && (c.onHold !== true || c.agentId)) return "a parked caller is not properly on hold";
   if ((c.transfer || c.inviting) && c.state !== "answered") return "a transfer or invite outside a live call";

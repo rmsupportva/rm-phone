@@ -5,7 +5,7 @@ import { OPEN, agents } from "../testHarness";
 import type { Agent, Call } from "../types";
 import { applyInput, startInboundCall, startOutboundCall, sweepDeadlines, type RunnerDeps } from "./callRunner";
 import { MemoryTable } from "./memoryTable";
-import { presenceFromRow, resultFor, toRow } from "./supabaseStore";
+import { forwardFromRow, presenceFromRow, resultFor, toRow } from "./supabaseStore";
 
 function setup() {
   const table = new MemoryTable();
@@ -129,6 +129,12 @@ describe("database columns", () => {
     expect(resultFor({ ...base, endReason: "timed_out" })).toBe("failed");
     expect(resultFor({ ...base, endReason: "timed_out", answeredAt: 1 })).toBe("answered");
     expect(resultFor({ ...base, endReason: "transferred" })).toBe("transferred");
+  });
+
+  it("reads forwarding from phone_presence with the old phone's default and limits", () => {
+    expect(forwardFromRow({ forward_to: null, forward_after_s: 10 })).toBeUndefined();
+    expect(forwardFromRow({ forward_to: " +18455550177 ", forward_after_s: null })).toEqual({ to: "+18455550177", afterSec: 15, parallel: false });
+    expect(forwardFromRow({ forward_to: "+18455550177", forward_after_s: 500 })?.afterSec).toBe(120);
   });
 
   it("reads phone_presence states; paused counts as not ringable", () => {

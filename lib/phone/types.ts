@@ -15,6 +15,21 @@ export interface Agent {
   presence: Presence;
   speaksSpanish: boolean;
   queueIds: string[];
+  /** Ring the agent's own phone too (old phone: user_phone_prefs forward_*). */
+  forward?: AgentForward;
+}
+
+/**
+ * Forwarding to an agent's own phone, exactly as the old phone did it:
+ *  - parallel: browser and own phone ring together for the whole ring;
+ *  - afterSec 0: only the own phone rings;
+ *  - afterSec >= the ring window: only the browser rings;
+ *  - otherwise: the browser rings first and the own phone joins after afterSec.
+ */
+export interface AgentForward {
+  to: string;
+  afterSec: number;
+  parallel: boolean;
 }
 
 export interface Contact {
@@ -143,6 +158,10 @@ export interface Call {
   queueId?: string;
   ringingAgentIds: string[];
   declinedAgentIds: string[];
+  /** When the current ring runs out (forwards can fall due before that). */
+  ringEndsAt?: number;
+  /** Own-phone forwards that fall due during the current ring. */
+  pendingForwards?: { agentId: string; to: string; at: number }[];
   /** Who answered (inbound) or who dialed (outbound). */
   agentId?: string;
   deadline?: { kind: TimerKind; at: number };
@@ -208,6 +227,9 @@ export type PromptId =
 export type Effect =
   | { type: "play"; prompt: PromptId; lang: Lang }
   | { type: "ring"; agentIds: string[] }
+  /** Ring an agent on their own phone (forwarding). Answer / decline report as that agent. */
+  | { type: "ring_external_for_agent"; agentId: string; to: string }
+  /** Stop ringing these agents: their browser AND any own-phone forward. */
   | { type: "stop_ringing"; agentIds: string[] }
   | { type: "record_voicemail"; maxSeconds: number }
   | { type: "connect"; agentId: string }
