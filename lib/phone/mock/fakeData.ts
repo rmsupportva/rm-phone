@@ -48,6 +48,11 @@ const CONTACTS: Omit<Contact, "createdAt">[] = [
   { id: "ct-hector", name: "Héctor Ruiz", numbers: [{ label: "Mobile", e164: N.hector }], notes: "Spanish speaker." },
 ];
 
+/** The demo contacts on their own (for screens that only need names for numbers). */
+export function demoContacts(): Contact[] {
+  return CONTACTS.map((c) => ({ ...c, createdAt: 0 }));
+}
+
 const MIN = 60_000;
 const HOUR = 60 * MIN;
 
