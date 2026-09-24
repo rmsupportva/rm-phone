@@ -79,14 +79,17 @@ export function presenceFromRow(state: string): Presence {
  * main line for now; names are the part of the email before the @.
  */
 export async function loadTeam(db: SupabaseClient, queueId: string): Promise<Agent[]> {
-  const { data, error } = await db.from("phone_presence").select("agent_email, state, since, forward_to, forward_after_s");
+  const { data, error } = await db
+    .from("phone_presence")
+    .select("agent_email, state, since, forward_to, forward_after_s, speaks_spanish, ring_priority");
   if (error) throw new Error(`load team: ${error.message}`);
   return (data ?? []).map((r: PresenceRow) => ({
     id: r.agent_email,
     name: r.agent_email.split("@")[0],
     presence: presenceFromRow(r.state),
-    speaksSpanish: false,
+    speaksSpanish: Boolean(r.speaks_spanish),
     queueIds: [queueId],
+    ...(r.ring_priority != null && { priority: r.ring_priority }),
     ...(forwardFromRow(r) && { forward: forwardFromRow(r) }),
     // "Longest idle": free since their last change of state.
     ...(r.state === "available" && r.since && { idleSince: Date.parse(r.since) }),
@@ -99,6 +102,9 @@ interface PresenceRow {
   since: string | null;
   forward_to: string | null;
   forward_after_s: number | null;
+  speaks_spanish: boolean | null;
+  /** Lower rings first (default 100). */
+  ring_priority: number | null;
 }
 
 /** Old phone default: forward after 15 s, clamped to 0–120 s. */

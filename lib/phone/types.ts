@@ -176,6 +176,8 @@ export interface Call {
   preferredAgentId?: string;
   /** Already overflowed to another queue once (never chains further). */
   overflowed?: boolean;
+  /** Recording was started for this call (it is started once). */
+  recordingStarted?: boolean;
   /** Own-phone forwards that fall due during the current ring. */
   pendingForwards?: { agentId: string; to: string; at: number }[];
   /** Who answered (inbound) or who dialed (outbound). */
@@ -250,7 +252,8 @@ export type PromptId =
   | "please_hold"
   | "callback_offer"
   | "callback_confirmed"
-  | "no_agents";
+  | "no_agents"
+  | "recording_notice";
 
 /** What the machine asks the outside world (the carrier, the app) to do. */
 export type Effect =
@@ -268,6 +271,10 @@ export type Effect =
   | { type: "hang_up_caller" }
   | { type: "hang_up_agent"; agentId: string }
   | { type: "set_presence"; agentId: string; presence: Presence }
+  /** Record the conversation from now on (old phone: record-from-start / calling.record). */
+  | { type: "start_recording" }
+  /** Text the caller a 1â€“5 rating request after the call (old phone: post-call feedback). */
+  | { type: "send_feedback_text"; to: string; lang: Lang }
   /** Round robin: the queue's starting point moves on by one (old phone: bump_queue_round_robin). */
   | { type: "advance_rotation"; queueId: string; memberCount: number }
   /** Save a callback request for the team (old phone: callbacks row, due now, unassigned). */

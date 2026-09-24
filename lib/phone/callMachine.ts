@@ -135,6 +135,36 @@ export function startOutbound(
 /* ---------- The one place a call changes ---------- */
 
 export function step(current: Call, input: CallInput, ctx: MachineContext): StepResult {
+  const result = stepCall(current, input, ctx);
+  // After-call rating text, the moment an answered incoming call ends.
+  if (current.state !== "ended" && result.call.state === "ended" && feedbackDue(result.call, ctx)) {
+    result.effects.push({ type: "send_feedback_text", to: result.call.from, lang: result.call.lang });
+  }
+  return result;
+}
+
+/** Old phone: only answered incoming calls with at least 15 s of talk. */
+const FEEDBACK_MIN_TALK_SECONDS = 15;
+
+function feedbackDue(call: Call, ctx: MachineContext): boolean {
+  return (
+    Boolean(ctx.settings.postCallFeedback) &&
+    call.direction === "inbound" &&
+    call.endReason === "completed" &&
+    (call.talkSeconds ?? 0) >= FEEDBACK_MIN_TALK_SECONDS
+  );
+}
+
+/** Start recording once, if the line records calls; `announce` plays the notice first. */
+function startRecording(call: Call, ctx: MachineContext, fx: Effect[], announce: boolean) {
+  const rec = ctx.settings.recording;
+  if (!rec || rec.mode !== "all" || call.recordingStarted) return;
+  if (announce && rec.announce) play(fx, "recording_notice", call.lang);
+  fx.push({ type: "start_recording" });
+  call.recordingStarted = true;
+}
+
+function stepCall(current: Call, input: CallInput, ctx: MachineContext): StepResult {
   const call = cloneCall(current);
   const fx: Effect[] = [];
   const unchanged: StepResult = { call: current, effects: [] };
@@ -334,6 +364,7 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
       call.answeredAt = now;
       setDeadline(call, "max_call", now, ctx.settings.maxCallSeconds);
       log(call, now, "answered", "Other side picked up");
+      startRecording(call, ctx, fx, false); // old phone: outbound records with no notice
       return { call, effects: fx };
     }
 
@@ -454,6 +485,8 @@ function enterQueue(call: Call, ctx: MachineContext, fx: Effect[], queue: QueueS
     return;
   }
 
+  // Old phone: the queue conference records from the start, notice first.
+  startRecording(call, ctx, fx, true);
   play(fx, "please_hold", call.lang);
   if (plan.strategy === "ring_all") {
     startRinging(call, ctx, fx, targets, queue.ringSeconds);

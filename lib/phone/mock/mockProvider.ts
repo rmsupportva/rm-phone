@@ -101,6 +101,8 @@ export class MockProvider implements PhoneProvider, MessagingProvider {
       case "dial_agent_cell":
       case "create_callback":
       case "advance_rotation":
+      case "start_recording":
+      case "send_feedback_text":
         return;
     }
   }

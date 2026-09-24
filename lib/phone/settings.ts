@@ -66,6 +66,17 @@ export interface PhoneSettings {
   dialSeconds: number;
   /** Safety cap on any single conversation. */
   maxCallSeconds: number;
+  /**
+   * Old phone call_recording_mode / call_recording_announcement. Unset = the
+   * engine says nothing about recording (the carrier adapter decides).
+   */
+  recording?: { mode: "off" | "all"; announce: boolean };
+  /**
+   * Old phone post_call_feedback_mode: after an answered incoming call of 15 s
+   * or more, text the caller a 1â€“5 rating request (the sender checks mobile
+   * number, consent and "not more than once a week").
+   */
+  postCallFeedback?: boolean;
   /** How long a transfer target rings before the transfer is called off. */
   transferSeconds: number;
   /** How long someone being added to a call (e.g. a VA) rings. */
@@ -160,6 +171,10 @@ export const PROMPTS: Record<PromptId, Record<Lang, string>> = {
   callback_offer: {
     en: "All of our agents are currently busy. Press 1 for a callback, or stay on the line to leave a message.",
     es: "Todos nuestros agentes están ocupados. Oprima 1 para que le devolvamos la llamada, o permanezca en la línea para dejar un mensaje.",
+  },
+  recording_notice: {
+    en: "This call may be recorded. Esta llamada puede ser grabada.",
+    es: "This call may be recorded. Esta llamada puede ser grabada.",
   },
   no_agents: {
     en: "Thank you for calling. Nobody is available to take your call right now. Please call again later. Goodbye.",
