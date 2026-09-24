@@ -2,6 +2,10 @@
 
 Newest first. Each entry: what was decided, why, and what it costs.
 
+## 2026-09-24: Outgoing calls always show the main caller ID
+
+- **Decision (owner):** every outgoing call shows the chosen main caller ID ((855) 499-3663 today), whether it is placed from the browser, the agent's own cell or the server. `chooseCallerId()` in `lib/phone/outbound.ts` applies to all modes.
+- **Why:** the old phone showed it only on browser calls and the plain line number otherwise; the owner wants one consistent number.
 ## 2026-09-24: A separate number for testing incoming calls
 
 - **Decision:** buy +1 (929) 412-1489 (SignalWire, same account as the old phone; voice only) for testing incoming calls on the new system. Owner approved the purchase.
