@@ -36,9 +36,17 @@ const CHOOSABLE: Presence[] = ["available", "away", "offline"];
 
 function AgentPhone({ agent, calls }: { agent: Agent; calls: Call[] }) {
   const { engine } = useRuntime();
-  const ringing = calls.filter((c) => c.state === "ringing" && c.ringingAgentIds.includes(agent.id));
+  const ringing = calls.filter(
+    (c) =>
+      (c.state === "ringing" && c.ringingAgentIds.includes(agent.id)) ||
+      c.transfer?.ringingAgentIds.includes(agent.id) ||
+      c.inviting?.ringingAgentIds.includes(agent.id),
+  );
   const active = calls.find(
-    (c) => c.agentId === agent.id && (c.state === "answered" || c.state === "dialing"),
+    (c) =>
+      (c.agentId === agent.id && (c.state === "answered" || c.state === "dialing")) ||
+      c.participants?.includes(agent.id) ||
+      (c.transfer?.phase === "consulting" && c.transfer.answeredBy === agent.id),
   );
   const lastCall = calls.find((c) => c.agentId === agent.id && c.state === "ended");
   const isRinging = ringing.length > 0;
@@ -104,7 +112,14 @@ function IncomingCall({ call, agent }: { call: Call; agent: Agent }) {
   const now = useNow();
   const left = call.deadline ? Math.max(0, Math.ceil((call.deadline.at - now) / 1000)) : 0;
   const { contactFor } = useDirectory();
+  const { agents } = usePhoneData();
   const who = contactFor(call.from)?.name;
+  const nameOf = (id?: string) => agents.find((a) => a.id === id)?.name ?? "A teammate";
+  const why = call.transfer?.ringingAgentIds.includes(agent.id)
+    ? `Transfer from ${nameOf(call.transfer.byAgentId)} · `
+    : call.inviting?.ringingAgentIds.includes(agent.id)
+      ? `${nameOf(call.inviting.byAgentId)} asks you to join · `
+      : "";
 
   return (
     <div className="incoming" role="group" aria-label={`Incoming call from ${who ?? formatPhone(call.from)}`}>
@@ -116,6 +131,7 @@ function IncomingCall({ call, agent }: { call: Call; agent: Agent }) {
           <strong>{formatPhone(call.from)}</strong>
           <span className="muted">
             {" "}
+            {why}
             {who && `${who} · `}
             {call.lang === "es" ? "Spanish" : "English"} · {left}s
           </span>
@@ -150,9 +166,15 @@ function ActiveCall({ call, agent }: { call: Call; agent: Agent }) {
       <p className="call-clock" aria-live="off">
         {talking ? formatDuration((now - call.answeredAt!) / 1000) : "Ringing…"}
       </p>
-      <button type="button" className="btn btn-danger" onClick={() => engine.hangUp(call.id, agent.id)}>
-        {talking ? "Hang up" : "Cancel"}
-      </button>
+      {call.participants?.includes(agent.id) ? (
+        <button type="button" className="btn btn-danger" onClick={() => engine.leaveCall(call.id, agent.id)}>
+          Leave call
+        </button>
+      ) : (
+        <button type="button" className="btn btn-danger" onClick={() => engine.hangUp(call.id, agent.id)}>
+          {talking ? "Hang up" : "Cancel"}
+        </button>
+      )}
     </div>
   );
 }

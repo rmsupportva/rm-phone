@@ -119,6 +119,8 @@ const LIVE_STATE: Record<Exclude<CallState, "ended">, StatusView> = {
 };
 
 export function callStatus(call: Call): StatusView {
+  if (call.state === "answered" && call.onHold) return { label: "On hold", tone: "info", icon: "pause" };
+  if (call.state === "ringing" && call.answeredAt !== undefined) return { label: "On hold, ringing team", tone: "caution", icon: "bell" };
   if (call.state !== "ended") return LIVE_STATE[call.state];
   const label = END_REASON_LABEL[call.endReason ?? "missed"];
   switch (call.endReason) {

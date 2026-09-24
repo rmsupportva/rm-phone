@@ -162,7 +162,12 @@ function LineCard({ call }: { call: Call }) {
         {call.state === "answered" && call.answeredAt !== undefined && (
           <>Talking for {formatDuration((now - call.answeredAt) / 1000)}</>
         )}
-        {call.state === "ringing" && <>Ringing {call.ringingAgentIds.length} · voicemail in {secondsLeft}s</>}
+        {call.state === "ringing" && (
+          <>
+            Ringing {call.ringingAgentIds.length} · {call.answeredAt !== undefined ? "parks again" : "voicemail"} in {secondsLeft}s
+          </>
+        )}
+        {call.state === "parked" && <>Parked · the team rings in {secondsLeft}s</>}
         {call.state === "menu" && <>No key in {secondsLeft}s → {call.menuStep === "language" ? "English" : "ring the team"}</>}
         {call.state === "dialing" && <>No answer in {secondsLeft}s</>}
       </p>
@@ -179,6 +184,8 @@ function Hears({ call, now }: { call: Call; now: number }) {
     prompt = call.menuStep === "language" ? "welcome_language" : "main_menu";
   } else if (call.state === "ringing") {
     prompt = "please_hold";
+  } else if (call.onHold) {
+    extra = "Hold music.";
   } else if (call.state === "answered") {
     extra = "Talking with the team.";
   } else if (call.state === "voicemail") {
