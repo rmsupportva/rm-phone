@@ -8,6 +8,9 @@
  * a moment before the ring timer means the timer finds the call already
  * answered and does nothing.
  *
+ * Getting a call answered lives here; what agents do during a call (hold,
+ * park, transfer, adding a VA) lives in inCall.ts.
+ *
  * Safety rules (lessons from the old system):
  *  1. Every state except `ended` has a deadline, so no call stays open.
  *  2. A call that was answered never goes to voicemail and is never "missed".
@@ -19,36 +22,27 @@
  *     straight away instead of listening to ringing nobody will answer.
  */
 import { evaluateHours } from "./hours";
-import type { PhoneSettings } from "./settings";
-import type {
-  Agent,
-  Call,
-  CallInput,
-  Effect,
-  EndReason,
-  Lang,
-  PromptId,
-  TimerKind,
-} from "./types";
+import { stepInCall } from "./inCall";
+import {
+  END_REASON_LABEL,
+  cloneCall,
+  end,
+  log,
+  parkCall,
+  pastMaxCall,
+  play,
+  setDeadline,
+  unholdCaller,
+  type MachineContext,
+  type StepResult,
+} from "./machineParts";
+import type { Call, CallInput, Effect, Lang, PromptId, TimerKind } from "./types";
 
-export interface MachineContext {
-  now: number;
-  settings: PhoneSettings;
-  agents: Agent[];
-}
-
-export interface StepResult {
-  call: Call;
-  effects: Effect[];
-}
+export { END_REASON_LABEL, type MachineContext, type StepResult };
 
 /* ---------- Starting a call ---------- */
 
-export function startInbound(
-  id: string,
-  from: string,
-  ctx: MachineContext,
-): StepResult {
+export function startInbound(id: string, from: string, ctx: MachineContext): StepResult {
   const call: Call = {
     id,
     direction: "inbound",
@@ -82,12 +76,7 @@ export function startInbound(
   return { call, effects: fx };
 }
 
-export function startOutbound(
-  id: string,
-  agentId: string,
-  to: string,
-  ctx: MachineContext,
-): StepResult {
+export function startOutbound(id: string, agentId: string, to: string, ctx: MachineContext): StepResult {
   const call: Call = {
     id,
     direction: "outbound",
@@ -113,10 +102,13 @@ export function startOutbound(
 /* ---------- The one place a call changes ---------- */
 
 export function step(current: Call, input: CallInput, ctx: MachineContext): StepResult {
-  const call = structuredClone(current);
+  const call = cloneCall(current);
   const fx: Effect[] = [];
   const unchanged: StepResult = { call: current, effects: [] };
   const { now } = ctx;
+
+  const inCall = stepInCall(current, call, input, ctx, fx);
+  if (inCall) return inCall;
 
   switch (input.type) {
     case "recording_ready": {
@@ -170,14 +162,18 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
       }
       const others = call.ringingAgentIds.filter((a) => a !== input.agentId);
       if (others.length) fx.push({ type: "stop_ringing", agentIds: others });
+      const pickedUpAgain = call.answeredAt !== undefined; // a parked / handed-off caller
       call.ringingAgentIds = [];
       call.state = "answered";
-      call.answeredAt = now;
+      call.answeredAt ??= now;
       call.agentId = input.agentId;
+      call.parkedBy = undefined;
+      call.parkedAt = undefined;
+      unholdCaller(call, fx);
       fx.push({ type: "connect", agentId: input.agentId });
       fx.push({ type: "set_presence", agentId: input.agentId, presence: "busy" });
-      setDeadline(call, "max_call", now, ctx.settings.maxCallSeconds);
-      log(call, now, "answered", agent?.name);
+      call.deadline = { kind: "max_call", at: Math.max(now, call.answeredAt + ctx.settings.maxCallSeconds * 1000) };
+      log(call, now, pickedUpAgain ? "picked_up" : "answered", agent?.name);
       return { call, effects: fx };
     }
 
@@ -193,21 +189,27 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
       log(call, now, input.type === "agent_declined" ? "declined" : "agent_left", name);
       if (call.ringingAgentIds.length === 0) {
         log(call, now, "nobody_left_ringing");
-        goToVoicemail(call, ctx, fx, "all_busy");
+        if (call.answeredAt !== undefined) parkCall(call, ctx, fx);
+        else goToVoicemail(call, ctx, fx, "all_busy");
       }
       return { call, effects: fx };
     }
 
     case "caller_hung_up": {
       const who = call.direction === "inbound" ? "Caller" : "Other side";
+      const talked = call.answeredAt !== undefined;
       switch (call.state) {
         case "menu":
           log(call, now, "hung_up", `${who} hung up in the menu`);
           end(call, now, "abandoned_menu", fx);
           break;
         case "ringing":
-          log(call, now, "hung_up", `${who} hung up while ringing`);
-          end(call, now, "missed", fx);
+          log(call, now, "hung_up", `${who} hung up while ${talked ? "on hold" : "ringing"}`);
+          end(call, now, talked ? "completed" : "missed", fx);
+          break;
+        case "parked":
+          log(call, now, "hung_up", `${who} hung up while parked`);
+          end(call, now, "completed", fx);
           break;
         case "voicemail":
           log(call, now, "hung_up", `${who} hung up before leaving a message`);
@@ -274,6 +276,11 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
       end(call, now, "failed", fx);
       return { call, effects: fx };
     }
+
+    default:
+      // In-call inputs that did not apply to this call (e.g. "hold" on a call
+      // that is still ringing) change nothing.
+      return unchanged;
   }
 }
 
@@ -291,6 +298,18 @@ function onTimer(call: Call, kind: TimerKind, ctx: MachineContext, fx: Effect[])
       }
       return;
     case "ring":
+      if (call.answeredAt !== undefined) {
+        // Someone already talked to this caller: never voicemail. Park them.
+        if (pastMaxCall(call, ctx)) {
+          log(call, now, "safety_cap", "Call reached the maximum length");
+          fx.push({ type: "hang_up_caller" });
+          end(call, now, "timed_out", fx);
+        } else {
+          log(call, now, "ring_no_answer", "Nobody took the call: parked again");
+          parkCall(call, ctx, fx);
+        }
+        return;
+      }
       log(call, now, "ring_no_answer", `Nobody answered in ${ctx.settings.queue.ringSeconds}s`);
       goToVoicemail(call, ctx, fx, "all_busy");
       return;
@@ -309,6 +328,11 @@ function onTimer(call: Call, kind: TimerKind, ctx: MachineContext, fx: Effect[])
       fx.push({ type: "hang_up_caller" });
       if (call.agentId) fx.push({ type: "hang_up_agent", agentId: call.agentId });
       end(call, now, "timed_out", fx);
+      return;
+    // transfer / invite / park deadlines are handled in inCall.ts.
+    case "transfer":
+    case "invite":
+    case "park":
       return;
   }
 }
@@ -364,53 +388,6 @@ function goToVoicemail(call: Call, ctx: MachineContext, fx: Effect[], reason?: P
   setDeadline(call, "voicemail", ctx.now, seconds);
   log(call, ctx.now, "voicemail");
 }
-
-function end(call: Call, now: number, reason: EndReason, fx: Effect[]) {
-  if (call.ringingAgentIds.length) {
-    fx.push({ type: "stop_ringing", agentIds: call.ringingAgentIds });
-    call.ringingAgentIds = [];
-  }
-  if (call.answeredAt !== undefined) {
-    call.talkSeconds = Math.max(0, Math.round((now - call.answeredAt) / 1000));
-  }
-  if (call.agentId && (call.state === "answered" || call.state === "dialing")) {
-    // After a conversation the agent gets wrap-up time; after a call that
-    // never connected they go straight back to available.
-    const presence = call.state === "answered" ? "wrap_up" : "available";
-    fx.push({ type: "set_presence", agentId: call.agentId, presence });
-  }
-  call.state = "ended";
-  call.endedAt = now;
-  call.endReason = reason;
-  call.deadline = undefined;
-  call.menuStep = undefined;
-  log(call, now, "ended", END_REASON_LABEL[reason]);
-}
-
-/* ---------- Helpers ---------- */
-
-function setDeadline(call: Call, kind: TimerKind, now: number, seconds: number) {
-  call.deadline = { kind, at: now + seconds * 1000 };
-}
-
-function play(fx: Effect[], prompt: PromptId, lang: Lang) {
-  fx.push({ type: "play", prompt, lang });
-}
-
-function log(call: Call, at: number, kind: string, detail?: string) {
-  call.timeline.push(detail === undefined ? { at, kind } : { at, kind, detail });
-}
-
-export const END_REASON_LABEL: Record<EndReason, string> = {
-  completed: "Completed",
-  voicemail: "Voicemail",
-  missed: "Missed",
-  abandoned_menu: "Hung up in menu",
-  no_answer: "No answer",
-  cancelled: "Cancelled",
-  failed: "Failed",
-  timed_out: "Timed out",
-};
 
 /** Calls someone should return: the caller reached out and nobody talked to them. */
 export function needsCallback(call: Call): boolean {

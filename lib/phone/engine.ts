@@ -22,7 +22,7 @@ import { AUTO_REPLY, checkOutgoing, keywordOf } from "./messaging";
 import type { MessagingEvent, MessagingProvider, PhoneProvider, ProviderEvent } from "./provider";
 import type { PhoneSettings } from "./settings";
 import type { PhoneStore } from "./store";
-import type { CallInput, Contact, Message, Presence } from "./types";
+import type { CallInput, Contact, Message, Presence, TransferTarget } from "./types";
 
 export type ErrorReporter = (source: string, error: unknown, context: Record<string, string>) => void;
 
@@ -132,6 +132,51 @@ export class PhoneEngine {
     this.input(callId, { type: "agent_hung_up", agentId });
   }
 
+  /* ---------- During a call ---------- */
+
+  hold(callId: string, agentId: string) {
+    this.input(callId, { type: "hold", agentId });
+  }
+
+  resume(callId: string, agentId: string) {
+    this.input(callId, { type: "resume", agentId });
+  }
+
+  park(callId: string, agentId: string) {
+    this.input(callId, { type: "park", agentId });
+  }
+
+  /** Pick up a parked call. */
+  unpark(callId: string, agentId: string) {
+    this.input(callId, { type: "unpark", agentId });
+  }
+
+  transfer(callId: string, agentId: string, mode: "blind" | "warm", target: TransferTarget) {
+    this.input(callId, { type: "transfer", agentId, mode, target });
+  }
+
+  completeTransfer(callId: string, agentId: string) {
+    this.input(callId, { type: "transfer_complete", agentId });
+  }
+
+  cancelTransfer(callId: string, agentId: string) {
+    this.input(callId, { type: "transfer_cancel", agentId });
+  }
+
+  /** Ring these people to join the call (e.g. VAs to translate); the first to answer joins. */
+  invite(callId: string, agentId: string, targets: string[]) {
+    this.input(callId, { type: "invite", agentId, targets });
+  }
+
+  cancelInvite(callId: string, agentId: string) {
+    this.input(callId, { type: "invite_cancel", agentId });
+  }
+
+  /** Someone who was added to the call leaves it. */
+  leaveCall(callId: string, agentId: string) {
+    this.input(callId, { type: "participant_left", agentId });
+  }
+
   placeOutbound(agentId: string, to: string): ActionResult {
     const agent = this.deps.store.getAgents().find((a) => a.id === agentId);
     if (!agent) return { ok: false, reason: "Choose who is calling first." };
@@ -152,7 +197,11 @@ export class PhoneEngine {
       if (presence === "available") return;
       // Stop ringing someone who just stepped away.
       for (const call of this.deps.store.listCalls()) {
-        if (call.state === "ringing" && call.ringingAgentIds.includes(agentId)) {
+        const ringsThem =
+          (call.state === "ringing" && call.ringingAgentIds.includes(agentId)) ||
+          call.transfer?.ringingAgentIds.includes(agentId) ||
+          call.inviting?.ringingAgentIds.includes(agentId);
+        if (ringsThem) {
           this.enqueueInput(call.id, { type: "agent_unavailable", agentId });
         }
       }

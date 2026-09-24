@@ -115,6 +115,7 @@ const LIVE_STATE: Record<Exclude<CallState, "ended">, StatusView> = {
   voicemail: { label: "Voicemail", tone: "info", icon: "voicemail" },
   dialing: { label: "Dialing", tone: "caution", icon: "outgoing" },
   answered: { label: "Talking", tone: "success", icon: "talk" },
+  parked: { label: "Parked", tone: "info", icon: "pause" },
 };
 
 export function callStatus(call: Call): StatusView {
@@ -131,6 +132,8 @@ export function callStatus(call: Call): StatusView {
     case "timed_out":
     case "failed":
       return { label, tone: "danger", icon: "x" };
+    case "transferred":
+      return { label, tone: "info", icon: "outgoing" };
     default:
       return { label, tone: "neutral", icon: "x" };
   }
@@ -153,7 +156,7 @@ export const TIMELINE_LABEL: Record<string, string> = {
   menu_choice: "Menu choice",
   ringing: "Ringing",
   declined: "Declined",
-  agent_left: "Stopped ringing (stepped away)",
+  agent_left: "Left",
   nobody_left_ringing: "Everyone declined",
   nobody_available: "Nobody available",
   ring_no_answer: "No answer",
@@ -169,4 +172,20 @@ export const TIMELINE_LABEL: Record<string, string> = {
   safety_cap: "Safety cap",
   ended: "Ended",
   recording_saved: "Recording saved",
+  hold: "On hold",
+  resumed: "Off hold",
+  parked: "Parked",
+  picked_up: "Picked up",
+  park_timeout: "Parked too long",
+  transfer_started: "Transfer",
+  transfer_answered: "Transfer answered",
+  transfer_failed: "Transfer didn't go through",
+  transfer_cancelled: "Transfer cancelled",
+  transferred: "Transferred to",
+  inviting: "Asked to join",
+  invite_failed: "Couldn't add anyone",
+  invite_cancelled: "Stopped asking",
+  invite_no_answer: "Nobody joined",
+  joined: "Joined the call",
+  left: "Left the call",
 };

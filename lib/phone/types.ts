@@ -54,6 +54,7 @@ export type CallState =
   | "voicemail" // caller hears the greeting / is recording
   | "dialing" // outbound: waiting for the other side to pick up
   | "answered" // two people are talking
+  | "parked" // caller on hold with no agent; anyone can pick them up
   | "ended";
 
 export type MenuStep = "language" | "main";
@@ -66,9 +67,43 @@ export type EndReason =
   | "no_answer" // outbound: the other side never picked up
   | "cancelled" // outbound: the agent hung up before an answer
   | "failed" // the carrier could not place the call
-  | "timed_out"; // safety cap reached
+  | "timed_out" // safety cap reached
+  | "transferred"; // handed to an outside number; we are no longer on it
 
-export type TimerKind = "menu" | "ring" | "voicemail" | "dial" | "max_call";
+export type TimerKind =
+  | "menu"
+  | "ring"
+  | "voicemail"
+  | "dial"
+  | "max_call"
+  | "transfer" // a transfer target is ringing
+  | "invite" // someone is being added to the call (e.g. a VA to translate)
+  | "park"; // a parked call waits this long before the team is rung
+
+/** Where a transfer goes. */
+export type TransferTarget =
+  | { kind: "agent"; agentId: string }
+  | { kind: "queue" } // everyone available on the line
+  | { kind: "external"; to: string };
+
+export interface TransferState {
+  /** blind: hand over as soon as the target answers. warm: talk to them first. */
+  mode: "blind" | "warm";
+  target: TransferTarget;
+  phase: "ringing" | "consulting";
+  /** The agent who started the transfer. Absent once they have left the call. */
+  byAgentId?: string;
+  ringingAgentIds: string[];
+  /** Who answered the transfer (an agent id, or "external"). */
+  answeredBy?: string;
+  startedAt: number;
+}
+
+export interface InviteState {
+  byAgentId: string;
+  ringingAgentIds: string[];
+  startedAt: number;
+}
 
 export type HoursState = "open" | "closed" | "holiday" | "early_close";
 
@@ -118,6 +153,15 @@ export interface Call {
   transcript?: TranscriptTurn[];
   /** Talk time in whole seconds, set when an answered call ends. */
   talkSeconds?: number;
+  /** The caller hears hold music. */
+  onHold?: boolean;
+  transfer?: TransferState;
+  /** Others on the call besides the handling agent (e.g. a VA translating). */
+  participants?: string[];
+  inviting?: InviteState;
+  /** Who parked the call, and when (state "parked"). */
+  parkedBy?: string;
+  parkedAt?: number;
   timeline: TimelineEntry[];
 }
 
@@ -133,7 +177,22 @@ export type CallInput =
   | { type: "far_end_answered" }
   | { type: "far_end_failed" }
   | { type: "recording_ready"; recording: Recording; transcript: TranscriptTurn[] }
-  | { type: "timer"; kind: TimerKind };
+  | { type: "timer"; kind: TimerKind }
+  // In-call actions by an agent:
+  | { type: "hold"; agentId: string }
+  | { type: "resume"; agentId: string }
+  | { type: "park"; agentId: string }
+  | { type: "unpark"; agentId: string }
+  | { type: "transfer"; agentId: string; mode: "blind" | "warm"; target: TransferTarget }
+  | { type: "transfer_complete"; agentId: string }
+  | { type: "transfer_cancel"; agentId: string }
+  | { type: "invite"; agentId: string; targets: string[] }
+  | { type: "invite_cancel"; agentId: string }
+  | { type: "participant_left"; agentId: string }
+  // The external party of a transfer, from the carrier:
+  | { type: "external_answered" }
+  | { type: "external_failed" }
+  | { type: "external_hung_up" };
 
 export type PromptId =
   | "welcome_language"
@@ -155,4 +214,14 @@ export type Effect =
   | { type: "dial"; to: string }
   | { type: "hang_up_caller" }
   | { type: "hang_up_agent"; agentId: string }
-  | { type: "set_presence"; agentId: string; presence: Presence };
+  | { type: "set_presence"; agentId: string; presence: Presence }
+  | { type: "hold_caller" }
+  | { type: "unhold_caller" }
+  /** Put another agent into the live call (transfer target, VA). */
+  | { type: "add_to_call"; agentId: string }
+  /** Take an agent out of a call that carries on without them. */
+  | { type: "remove_from_call"; agentId: string }
+  | { type: "dial_external"; to: string }
+  | { type: "hang_up_external" }
+  /** Leave the caller and the external party talking; we are no longer on the call. */
+  | { type: "release_to_external" };

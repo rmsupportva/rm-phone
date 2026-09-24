@@ -1992,3 +1992,98 @@ kbd {
     bottom: calc(80px + env(safe-area-inset-bottom));
   }
 }
+
+/* ---------- In-call controls (Hold / Park / Transfer / Add VA) ---------- */
+.dock {
+  max-height: calc(100dvh - 140px);
+  overflow-y: auto;
+}
+.dock-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -4px 16px 10px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--info-bg);
+  color: var(--info-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.dock-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px 10px;
+}
+.dock-controls .btn {
+  flex: 1 1 auto;
+}
+.dock-panel {
+  display: grid;
+  gap: 8px;
+  margin: 0 16px 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg);
+}
+.dock-panel .segmented-fill {
+  margin: 0;
+}
+.dock-panel .link-btn {
+  justify-self: start;
+}
+.dock-pick {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.dock-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.dock-pick-item > span:nth-child(2) {
+  flex: 1;
+  font-weight: 600;
+}
+.dock-pick-item:hover:not(:disabled) {
+  background: var(--brand-soft);
+}
+.dock-pick-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.dock-number {
+  display: flex;
+  gap: 6px;
+}
+.dock-parked {
+  padding: 10px 16px 12px;
+}
+.dock-parked-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-weight: 700;
+  color: var(--info-text);
+}
+.dock-parked-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+}

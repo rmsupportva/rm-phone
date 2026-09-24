@@ -81,6 +81,7 @@ export class MockProvider implements PhoneProvider, MessagingProvider {
         return;
       case "hang_up_caller":
       case "hang_up_agent":
+      case "release_to_external":
         this.finish(callId, line, now);
         return;
       // Ringing agents' browsers and dialing out need no simulation here:
@@ -90,6 +91,12 @@ export class MockProvider implements PhoneProvider, MessagingProvider {
       case "stop_ringing":
       case "dial":
       case "set_presence":
+      case "hold_caller":
+      case "unhold_caller":
+      case "add_to_call":
+      case "remove_from_call":
+      case "dial_external":
+      case "hang_up_external":
         return;
     }
   }
@@ -134,6 +141,15 @@ export class MockProvider implements PhoneProvider, MessagingProvider {
 
   farEndFails(callId: string): void {
     this.emit({ type: "call_input", callId, input: { type: "far_end_failed" } });
+  }
+
+  /** The outside number a call is being transferred to picks up / can't be reached. */
+  externalAnswers(callId: string): void {
+    this.emit({ type: "call_input", callId, input: { type: "external_answered" } });
+  }
+
+  externalFails(callId: string): void {
+    this.emit({ type: "call_input", callId, input: { type: "external_failed" } });
   }
 
   /* ---------- Internals ---------- */

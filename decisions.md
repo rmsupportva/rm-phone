@@ -2,6 +2,13 @@
 
 Newest first. Each entry: what was decided, why, and what it costs.
 
+## 2026-09-24: In-call features and running calls from a database
+
+- **Hold, park, transfer and "add a VA" live in the call brain** (`lib/phone/inCall.ts`), not only in screens. Requested by the session building the survey site's phone, which will carry the effects out through SignalWire.
+- **Transfer rules (from the old system):** the agent stays on until the target actually answers. "Talk to them first" (warm) lets the two talk before Complete; "Send right away" (blind) hands over on answer. A transfer nobody picks up comes back to the agent. If the agent already left, the whole team is rung.
+- **A caller who has talked to us never goes to voicemail.** A parked call that waits too long rings the team; if nobody answers it stays parked, until the safety cap ends it.
+- **Server runner** (`lib/phone/server/callRunner.ts`): each carrier webhook loads the call, steps it and saves only if nobody changed it in between (a version number), retrying otherwise. Effects go out only after a successful save. A sweep fires passed deadlines. `supabaseStore.ts` maps this onto the bronx-survey `phone_calls` / `phone_call_events` / `phone_presence` tables.
+- **Testing:** the random safety test now picks sensible actions for each call state, and it fails if it ever stops reaching parking, transfers, three-way calls or outside transfers.
 ## 2026-09-24: Google Voice-style layout with texts and contacts
 
 - **Decision:** the app is organised like Google Voice: a menu (Calls, Messages, Voicemail, Contacts, then Team & demo, Settings), a list, and the open item beside it. On a phone the menu moves to the bottom and the list and the open item take turns.

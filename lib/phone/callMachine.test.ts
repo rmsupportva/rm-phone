@@ -1,73 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { needsCallback, startInbound, startOutbound, step, type MachineContext } from "./callMachine";
-import { DEMO_SETTINGS } from "./settings";
-import type { Agent, Call, CallInput, Effect } from "./types";
-
-const OPEN = Date.parse("2026-09-22T11:00:00-04:00"); // Tuesday 11:00
-const CLOSED = Date.parse("2026-09-22T19:00:00-04:00");
-const HOLIDAY = Date.parse("2026-09-28T11:00:00-04:00");
-const AFTER_CANDLES = Date.parse("2026-12-11T16:30:00-05:00");
-
-const agents = (): Agent[] => [
-  { id: "a", name: "A", presence: "available", speaksSpanish: false, queueIds: ["screening"] },
-  { id: "b", name: "B", presence: "available", speaksSpanish: true, queueIds: ["screening"] },
-  { id: "c", name: "C", presence: "away", speaksSpanish: false, queueIds: ["screening"] },
-];
-
-/** A tiny harness: feed inputs, track time and the agents' presence. */
-function harness(start = OPEN, team = agents()) {
-  let now = start;
-  let effects: Effect[] = [];
-  const ctx = (): MachineContext => ({ now, settings: DEMO_SETTINGS, agents: team });
-  const applyPresence = (fx: Effect[]) => {
-    for (const e of fx) {
-      if (e.type === "set_presence") {
-        const a = team.find((x) => x.id === e.agentId);
-        if (a) a.presence = e.presence;
-      }
-    }
-  };
-  const h = {
-    call: undefined as unknown as Call,
-    get effects() {
-      return effects;
-    },
-    team,
-    inbound() {
-      const r = startInbound("call-1", "+18455550111", ctx());
-      h.call = r.call;
-      effects = r.effects;
-      applyPresence(effects);
-      return h;
-    },
-    outbound(agentId = "a") {
-      const r = startOutbound("call-1", agentId, "+18455550122", ctx());
-      h.call = r.call;
-      effects = r.effects;
-      applyPresence(effects);
-      return h;
-    },
-    send(input: CallInput) {
-      const r = step(h.call, input, ctx());
-      h.call = r.call;
-      effects = r.effects;
-      applyPresence(effects);
-      return h;
-    },
-    wait(seconds: number) {
-      now += seconds * 1000;
-      return h;
-    },
-    /** Let the deadline pass and fire its timer, like the engine's tick. */
-    expire() {
-      const d = h.call.deadline;
-      if (!d) throw new Error("no deadline");
-      now = d.at;
-      return h.send({ type: "timer", kind: d.kind });
-    },
-  };
-  return h;
-}
+import { needsCallback } from "./callMachine";
+import { AFTER_CANDLES, CLOSED, HOLIDAY, OPEN, agents, harness } from "./testHarness";
+import type { Call, CallInput } from "./types";
 
 describe("inbound during office hours", () => {
   it("starts at the language menu", () => {
@@ -276,6 +210,31 @@ describe("safety rules hold for ANY sequence of events", () => {
     { type: "voicemail_saved", recording: { id: "r", seconds: 5 } },
     { type: "far_end_answered" },
     { type: "far_end_failed" },
+    // During a call:
+    { type: "agent_answered", agentId: "c" },
+    { type: "agent_declined", agentId: "c" },
+    { type: "agent_hung_up", agentId: "c" },
+    { type: "hold", agentId: "a" },
+    { type: "resume", agentId: "a" },
+    { type: "park", agentId: "a" },
+    { type: "park", agentId: "b" },
+    { type: "unpark", agentId: "b" },
+    { type: "unpark", agentId: "c" },
+    { type: "transfer", agentId: "a", mode: "warm", target: { kind: "agent", agentId: "c" } },
+    { type: "transfer", agentId: "b", mode: "blind", target: { kind: "queue" } },
+    { type: "transfer", agentId: "a", mode: "warm", target: { kind: "external", to: "+18455550199" } },
+    { type: "transfer", agentId: "a", mode: "blind", target: { kind: "external", to: "+18455550199" } },
+    { type: "transfer", agentId: "b", mode: "blind", target: { kind: "external", to: "+18455550199" } },
+    { type: "external_answered" },
+    { type: "transfer_complete", agentId: "a" },
+    { type: "transfer_cancel", agentId: "b" },
+    { type: "external_answered" },
+    { type: "external_failed" },
+    { type: "external_hung_up" },
+    { type: "invite", agentId: "a", targets: ["c", "b"] },
+    { type: "invite", agentId: "b", targets: ["c", "a"] },
+    { type: "invite_cancel", agentId: "a" },
+    { type: "participant_left", agentId: "c" },
   ];
 
   // A small deterministic random generator, so a failure can be replayed.
@@ -287,42 +246,162 @@ describe("safety rules hold for ANY sequence of events", () => {
   }
 
   it("never breaks the rules across 3,000 random calls", () => {
+    // Prove the random walk really reaches the tricky situations.
+    const seen = new Set<string>();
     for (let seed = 1; seed <= 3000; seed++) {
       const rand = rng(seed);
       const starts = [OPEN, CLOSED, HOLIDAY, AFTER_CANDLES];
-      const h = harness(starts[Math.floor(rand() * starts.length)]);
+      // C is sometimes available, so transfers and adding a VA have someone to ring.
+      const team = agents().map((a) => (a.id === "c" && rand() < 0.6 ? { ...a, presence: "available" as const } : a));
+      const h = harness(starts[Math.floor(rand() * starts.length)], team);
       if (rand() < 0.75) h.inbound();
       else h.outbound();
       let everAnswered = false;
 
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 24; i++) {
         if (rand() < 0.3 && h.call.deadline) h.expire();
-        else h.wait(rand() * 40).send(INPUTS[Math.floor(rand() * INPUTS.length)]);
+        else h.wait(rand() * 40).send(rand() < 0.35 ? pick(INPUTS, rand) : sensibleInput(h.call, rand));
 
         const c = h.call;
         if (c.answeredAt !== undefined) everAnswered = true;
-        const where = `seed ${seed}, step ${i}, state ${c.state}`;
-
-        // 1. Every open call has a deadline; an ended call has none.
-        if (c.state === "ended") {
-          expect(c.deadline, where).toBeUndefined();
-          expect(c.endedAt, where).toBeDefined();
-          expect(c.ringingAgentIds, where).toEqual([]);
-        } else {
-          expect(c.deadline, where).toBeDefined();
-        }
-        // 2. Once answered, never voicemail, never missed.
-        if (everAnswered) {
-          expect(c.state === "voicemail" || c.state === "ringing", where).toBe(false);
-          if (c.state === "ended") {
-            expect(["completed", "timed_out"], where).toContain(c.endReason);
-          }
-        }
-        // 3. Only an answered call has an answering agent on an inbound call.
-        if (c.direction === "inbound" && c.state !== "answered" && !everAnswered) {
-          expect(c.agentId, where).toBeUndefined();
-        }
-      }
+        seen.add(c.state);
+        if (c.onHold) seen.add("on hold");
+        if (c.transfer) seen.add(`transfer ${c.transfer.phase}`);
+        if (c.participants) seen.add("three-way");
+        if (c.state === "ended") seen.add(`ended ${c.endReason}`);
+        if (c.state === "ringing" && c.answeredAt !== undefined) seen.add("re-ringing a held caller");
+        const broken = brokenRule(c, everAnswered);
+        if (broken) expect.fail(`seed ${seed}, step ${i}, state ${c.state}: ${broken}`);      }
+    }
+    for (const situation of [
+      "parked",
+      "on hold",
+      "transfer ringing",
+      "transfer consulting",
+      "three-way",
+      "re-ringing a held caller",
+      "ended transferred",
+      "ended voicemail",
+      "ended timed_out",
+    ]) {
+      expect(seen, `never reached: ${situation}`).toContain(situation);
     }
   });
 });
+
+/**
+ * The safety rules, checked with plain code (hundreds of thousands of checks;
+ * calling expect() for each is too slow). Returns the broken rule, or null.
+ */
+function brokenRule(c: Call, everAnswered: boolean): string | null {
+  // 1. Every open call has a deadline; an ended call has none.
+  if (c.state === "ended") {
+    if (c.deadline) return "an ended call still has a deadline";
+    if (c.endedAt === undefined) return "an ended call has no end time";
+    if (c.ringingAgentIds.length) return "an ended call is still ringing someone";
+  } else if (!c.deadline) {
+    return "an open call has no deadline";
+  }
+  // 2. Once answered, never voicemail, never missed. (It may ring the team
+  //    again, e.g. after parking, but that ends parked, not voicemail.)
+  if (everAnswered) {
+    if (c.state === "voicemail") return "an answered caller was sent to voicemail";
+    if (c.state === "ended" && !["completed", "timed_out", "transferred"].includes(c.endReason ?? "")) {
+      return `an answered call ended as ${c.endReason}`;
+    }
+  }
+  // 3. Only an answered call has an answering agent on an inbound call.
+  if (c.direction === "inbound" && c.state !== "answered" && !everAnswered && c.agentId) {
+    return "an unanswered inbound call has an agent";
+  }
+  // 4. An ended call leaves nothing behind.
+  if (c.state === "ended" && (c.transfer || c.inviting || c.participants || c.onHold !== undefined)) {
+    return "an ended call left a transfer, invite, extra person or hold behind";
+  }
+  // 5. A parked caller is on hold with no agent; transfers and invites only exist mid-call.
+  if (c.state === "parked" && (c.onHold !== true || c.agentId)) return "a parked caller is not properly on hold";
+  if ((c.transfer || c.inviting) && c.state !== "answered") return "a transfer or invite outside a live call";
+  return null;
+}
+
+function pick<T>(list: T[], rand: () => number): T {
+  return list[Math.floor(rand() * list.length)];
+}
+
+/**
+ * An input that makes sense for the call's current state, from the people
+ * actually involved, so the random walk reaches deep situations (a warm
+ * transfer being completed, a VA joining) instead of mostly bouncing off.
+ */
+function sensibleInput(c: Call, rand: () => number): CallInput {
+  const anyone = pick(["a", "b", "c"], rand);
+  const agent = c.agentId ?? anyone;
+  const other = pick(["a", "b", "c"].filter((x) => x !== agent), rand);
+  const mode = rand() < 0.5 ? "warm" : "blind";
+  switch (c.state) {
+    case "menu":
+      return pick<CallInput>([{ type: "caller_pressed", digit: "1" }, { type: "caller_pressed", digit: "2" }, { type: "caller_hung_up" }], rand);
+    case "ringing":
+      return pick<CallInput>(
+        [
+          { type: "agent_answered", agentId: pick(c.ringingAgentIds.length ? c.ringingAgentIds : [anyone], rand) },
+          { type: "agent_declined", agentId: pick(c.ringingAgentIds.length ? c.ringingAgentIds : [anyone], rand) },
+          { type: "caller_hung_up" },
+        ],
+        rand,
+      );
+    case "parked":
+      return pick<CallInput>([{ type: "unpark", agentId: anyone }, { type: "caller_hung_up" }], rand);
+    case "dialing":
+      return pick<CallInput>([{ type: "far_end_answered" }, { type: "far_end_failed" }, { type: "agent_hung_up", agentId: agent }], rand);
+    case "answered": {
+      const t = c.transfer;
+      if (t?.phase === "ringing") {
+        const target = t.ringingAgentIds.length ? pick(t.ringingAgentIds, rand) : anyone;
+        return pick<CallInput>(
+          [
+            { type: "agent_answered", agentId: target },
+            { type: "agent_declined", agentId: target },
+            { type: "external_answered" },
+            { type: "external_failed" },
+            { type: "transfer_cancel", agentId: t.byAgentId ?? anyone },
+            { type: "agent_hung_up", agentId: t.byAgentId ?? anyone },
+          ],
+          rand,
+        );
+      }
+      if (t?.phase === "consulting") {
+        return pick<CallInput>(
+          [
+            { type: "transfer_complete", agentId: t.byAgentId ?? anyone },
+            { type: "transfer_cancel", agentId: t.byAgentId ?? anyone },
+            { type: "agent_hung_up", agentId: t.answeredBy ?? anyone },
+            { type: "external_hung_up" },
+          ],
+          rand,
+        );
+      }
+      if (c.inviting) {
+        const va = c.inviting.ringingAgentIds.length ? pick(c.inviting.ringingAgentIds, rand) : anyone;
+        return pick<CallInput>([{ type: "agent_answered", agentId: va }, { type: "agent_declined", agentId: va }, { type: "invite_cancel", agentId: agent }], rand);
+      }
+      return pick<CallInput>(
+        [
+          { type: "hold", agentId: agent },
+          { type: "resume", agentId: agent },
+          { type: "park", agentId: agent },
+          { type: "transfer", agentId: agent, mode, target: { kind: "agent", agentId: other } },
+          { type: "transfer", agentId: agent, mode, target: { kind: "queue" } },
+          { type: "transfer", agentId: agent, mode, target: { kind: "external", to: "+18455550199" } },
+          { type: "invite", agentId: agent, targets: [other] },
+          { type: "participant_left", agentId: pick(c.participants ?? [other], rand) },
+          { type: "caller_hung_up" },
+          { type: "agent_hung_up", agentId: agent },
+        ],
+        rand,
+      );
+    }
+    default:
+      return { type: "caller_hung_up" };
+  }
+}

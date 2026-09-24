@@ -40,6 +40,12 @@ export interface PhoneSettings {
   dialSeconds: number;
   /** Safety cap on any single conversation. */
   maxCallSeconds: number;
+  /** How long a transfer target rings before the transfer is called off. */
+  transferSeconds: number;
+  /** How long someone being added to a call (e.g. a VA) rings. */
+  inviteSeconds: number;
+  /** How long a call stays parked before the whole team is rung. */
+  parkSeconds: number;
 }
 
 const weekday: DayHours = { open: "09:00", close: "17:00" };
@@ -82,6 +88,9 @@ export const DEMO_SETTINGS: PhoneSettings = {
   voicemailGreetingSeconds: 10,
   dialSeconds: 45,
   maxCallSeconds: 4 * 60 * 60,
+  transferSeconds: 25,
+  inviteSeconds: 18,
+  parkSeconds: 5 * 60,
 };
 
 /** What the caller hears. The real build swaps these for recorded audio. */
