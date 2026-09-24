@@ -47,8 +47,8 @@ export function harness(start = OPEN, team = agents()) {
       applyPresence(effects);
       return h;
     },
-    outbound(agentId = "a") {
-      const r = startOutbound("call-1", agentId, "+18455550122", ctx());
+    outbound(agentId = "a", opts: { agentCell?: string } = {}) {
+      const r = startOutbound("call-1", agentId, "+18455550122", ctx(), opts);
       h.call = r.call;
       effects = r.effects;
       applyPresence(effects);

@@ -164,6 +164,11 @@ export interface Call {
   pendingForwards?: { agentId: string; to: string; at: number }[];
   /** Who answered (inbound) or who dialed (outbound). */
   agentId?: string;
+  /**
+   * Outbound from the agent's own cell: "agent" while their cell rings,
+   * "family" once they answered and the other side is being dialled.
+   */
+  dialPhase?: "agent" | "family";
   deadline?: { kind: TimerKind; at: number };
   voicemail?: Recording;
   /** When someone first opened the voicemail. Unheard voicemails are highlighted. */
@@ -234,6 +239,8 @@ export type Effect =
   | { type: "record_voicemail"; maxSeconds: number }
   | { type: "connect"; agentId: string }
   | { type: "dial"; to: string }
+  /** Outbound from the agent's own phone: ring it first (they hear ringback once they answer). */
+  | { type: "dial_agent_cell"; agentId: string; to: string }
   | { type: "hang_up_caller" }
   | { type: "hang_up_agent"; agentId: string }
   | { type: "set_presence"; agentId: string; presence: Presence }

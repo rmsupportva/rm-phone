@@ -97,6 +97,8 @@ export class MockProvider implements PhoneProvider, MessagingProvider {
       case "remove_from_call":
       case "dial_external":
       case "hang_up_external":
+      case "ring_external_for_agent":
+      case "dial_agent_cell":
         return;
     }
   }

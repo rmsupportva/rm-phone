@@ -80,7 +80,18 @@ export function startInbound(id: string, from: string, ctx: MachineContext): Ste
   return { call, effects: fx };
 }
 
-export function startOutbound(id: string, agentId: string, to: string, ctx: MachineContext): StepResult {
+/**
+ * `agentCell`: the agent calls from their own phone (old phone: outbound_via
+ * = cell). Their phone rings first; the other side is dialled only once it is
+ * answered, never alongside it. If they never answer, nobody else is rung.
+ */
+export function startOutbound(
+  id: string,
+  agentId: string,
+  to: string,
+  ctx: MachineContext,
+  opts: { agentCell?: string } = {},
+): StepResult {
   const call: Call = {
     id,
     direction: "outbound",
@@ -94,12 +105,16 @@ export function startOutbound(id: string, agentId: string, to: string, ctx: Mach
     declinedAgentIds: [],
     timeline: [],
   };
-  const fx: Effect[] = [
-    { type: "set_presence", agentId, presence: "busy" },
-    { type: "dial", to },
-  ];
+  const fx: Effect[] = [{ type: "set_presence", agentId, presence: "busy" }];
+  if (opts.agentCell) {
+    call.dialPhase = "agent";
+    fx.push({ type: "dial_agent_cell", agentId, to: opts.agentCell });
+    log(call, ctx.now, "dialing", "Ringing your own phone first");
+  } else {
+    fx.push({ type: "dial", to });
+    log(call, ctx.now, "dialing");
+  }
   setDeadline(call, "dial", ctx.now, ctx.settings.dialSeconds);
-  log(call, ctx.now, "dialing");
   return { call, effects: fx };
 }
 
@@ -154,6 +169,14 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
     }
 
     case "agent_answered": {
+      if (call.state === "dialing" && call.dialPhase === "agent") {
+        if (input.agentId !== call.agentId) return unchanged;
+        call.dialPhase = "family";
+        fx.push({ type: "dial", to: call.to });
+        setDeadline(call, "dial", now, ctx.settings.dialSeconds);
+        log(call, now, "agent_cell_answered", "Your phone answered: calling them now");
+        return { call, effects: fx };
+      }
       const agent = ctx.agents.find((a) => a.id === input.agentId);
       const canAnswer =
         call.state === "ringing" &&
@@ -185,6 +208,11 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
 
     case "agent_declined":
     case "agent_unavailable": {
+      if (call.state === "dialing" && call.dialPhase === "agent" && input.agentId === call.agentId) {
+        log(call, now, "hung_up", "Your phone was declined: nobody else was called");
+        end(call, now, "cancelled", fx);
+        return { call, effects: fx };
+      }
       if (call.state !== "ringing" || !call.ringingAgentIds.includes(input.agentId)) {
         return unchanged;
       }
@@ -227,6 +255,7 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
           end(call, now, "missed", fx);
           break;
         case "dialing":
+          if (call.dialPhase === "agent") return unchanged; // the other side hasn't been dialled yet
           log(call, now, "hung_up", "Other side rejected the call");
           end(call, now, "no_answer", fx);
           break;
@@ -249,7 +278,7 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
         end(call, now, "completed", fx);
       } else if (call.state === "dialing") {
         log(call, now, "hung_up", "Agent cancelled before an answer");
-        fx.push({ type: "hang_up_caller" });
+        if (call.dialPhase !== "agent") fx.push({ type: "hang_up_caller" });
         end(call, now, "cancelled", fx);
       } else {
         return unchanged;
@@ -273,7 +302,7 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
     }
 
     case "far_end_answered": {
-      if (call.state !== "dialing") return unchanged;
+      if (call.state !== "dialing" || call.dialPhase === "agent") return unchanged;
       call.state = "answered";
       call.answeredAt = now;
       setDeadline(call, "max_call", now, ctx.settings.maxCallSeconds);
@@ -282,7 +311,7 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
     }
 
     case "far_end_failed": {
-      if (call.state !== "dialing") return unchanged;
+      if (call.state !== "dialing" || call.dialPhase === "agent") return unchanged;
       log(call, now, "failed", "The call could not be placed");
       end(call, now, "failed", fx);
       return { call, effects: fx };
@@ -331,6 +360,12 @@ function onTimer(call: Call, kind: TimerKind, ctx: MachineContext, fx: Effect[])
       end(call, now, "missed", fx);
       return;
     case "dial":
+      if (call.dialPhase === "agent") {
+        log(call, now, "no_answer", "Your phone wasn't answered: nobody else was called");
+        if (call.agentId) fx.push({ type: "hang_up_agent", agentId: call.agentId });
+        end(call, now, "cancelled", fx);
+        return;
+      }
       log(call, now, "no_answer", "Nobody picked up");
       fx.push({ type: "hang_up_caller" });
       end(call, now, "no_answer", fx);

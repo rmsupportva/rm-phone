@@ -61,14 +61,16 @@ export async function startInboundCall(
   return insertNew(deps, startInbound(id, from, ctx), providerSid);
 }
 
+/** `agentCell`: call from the agent's own phone, which rings first (see startOutbound). */
 export async function startOutboundCall(
   deps: RunnerDeps,
   id: string,
   agentId: string,
   to: string,
+  opts: { agentCell?: string } = {},
 ): Promise<RunResult | null> {
   const ctx = await deps.context();
-  return insertNew(deps, startOutbound(id, agentId, to, ctx));
+  return insertNew(deps, startOutbound(id, agentId, to, ctx, opts));
 }
 
 /** Apply one input to a stored call, safely against concurrent webhooks. */

@@ -177,7 +177,8 @@ export class PhoneEngine {
     this.input(callId, { type: "participant_left", agentId });
   }
 
-  placeOutbound(agentId: string, to: string): ActionResult {
+  /** `agentCell`: call from the agent's own phone (it rings first; see startOutbound). */
+  placeOutbound(agentId: string, to: string, opts: { agentCell?: string } = {}): ActionResult {
     const agent = this.deps.store.getAgents().find((a) => a.id === agentId);
     if (!agent) return { ok: false, reason: "Choose who is calling first." };
     if (agent.presence !== "available") {
@@ -185,7 +186,7 @@ export class PhoneEngine {
     }
     const id = this.deps.newId();
     this.run("placeOutbound", { callId: id, agentId }, () => {
-      const result = startOutbound(id, agentId, to, this.ctx());
+      const result = startOutbound(id, agentId, to, this.ctx(), opts);
       this.apply(result.call.id, result);
     });
     return { ok: true, id };
