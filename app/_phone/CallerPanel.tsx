@@ -4,17 +4,28 @@ import { useState } from "react";
 import { DEMO_CALLERS } from "@/lib/phone/mock/fakeData";
 import { DEMO_SETTINGS, PROMPTS } from "@/lib/phone/settings";
 import type { Call, PromptId } from "@/lib/phone/types";
-import { callerLabel, callStatus, formatDuration, formatPhone, otherParty } from "./format";
+import { callStatus, formatDuration, formatPhone, otherParty } from "./format";
 import { Icon } from "./Icon";
-import { useNow, usePhoneData, useRuntime } from "./PhoneContext";
+import { useDirectory, useNow, usePhoneData, useRuntime, useShell } from "./PhoneContext";
 import { StatusBadge } from "./StatusBadge";
+
+const TEXTS_IN = ["Hi, is this RM Support?", "Can someone call me back?", "Hola, necesito ayuda con mi solicitud."];
 
 /** The pretend phone company's controls: be the caller (or the person being called). */
 export function CallerPanel() {
   const { provider } = useRuntime();
   const { calls } = usePhoneData();
-  const [caller, setCaller] = useState(DEMO_CALLERS[0].number);
+  const { navigate, toast } = useShell();
+  const { nameFor } = useDirectory();
+  const [caller, setCaller] = useState(DEMO_CALLERS[0]);
+  const [textSeq, setTextSeq] = useState(0);
   const live = calls.filter((c) => c.state !== "ended");
+
+  const textIn = () => {
+    provider.receiveText(caller, TEXTS_IN[textSeq % TEXTS_IN.length]);
+    setTextSeq((n) => n + 1);
+    toast(`${nameFor(caller)} texted the main line.`);
+  };
 
   return (
     <section className="panel" aria-labelledby="callers-title">
@@ -27,17 +38,17 @@ export function CallerPanel() {
 
       <div className="place-call">
         <fieldset className="chips">
-          <legend className="field-label">Call as</legend>
-          {DEMO_CALLERS.map((c) => (
-            <label key={c.number} className="chip">
+          <legend className="field-label">Be this person</legend>
+          {DEMO_CALLERS.map((number) => (
+            <label key={number} className="chip">
               <input
                 type="radio"
                 name="caller"
-                value={c.number}
-                checked={caller === c.number}
-                onChange={() => setCaller(c.number)}
+                value={number}
+                checked={caller === number}
+                onChange={() => setCaller(number)}
               />
-              <span>{c.label}</span>
+              <span>{nameFor(number)}</span>
             </label>
           ))}
         </fieldset>
@@ -45,6 +56,15 @@ export function CallerPanel() {
           <Icon name="phone" />
           Call the main line {formatPhone(DEMO_SETTINGS.mainNumber)}
         </button>
+        <div className="place-call-row">
+          <button type="button" className="btn btn-block" onClick={textIn}>
+            <Icon name="message" />
+            Text the main line
+          </button>
+          <button type="button" className="btn btn-quiet" onClick={() => navigate("messages", caller)}>
+            Open thread
+          </button>
+        </div>
       </div>
 
       <h3 className="section-title">On the line now</h3>
@@ -67,7 +87,8 @@ function LineCard({ call }: { call: Call }) {
   const { provider } = useRuntime();
   const { agents } = usePhoneData();
   const now = useNow();
-  const who = callerLabel(otherParty(call)) ?? "Caller";
+  const { nameFor } = useDirectory();
+  const who = nameFor(otherParty(call));
   const secondsLeft = call.deadline ? Math.max(0, Math.ceil((call.deadline.at - now) / 1000)) : 0;
   const agentName = agents.find((a) => a.id === call.agentId)?.name;
 

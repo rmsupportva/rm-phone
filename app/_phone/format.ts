@@ -1,5 +1,4 @@
 import { END_REASON_LABEL } from "@/lib/phone/callMachine";
-import { DEMO_CALLERS } from "@/lib/phone/mock/fakeData";
 import type { Call, CallState, Presence } from "@/lib/phone/types";
 
 export const TIMEZONE = "America/New_York";
@@ -16,10 +15,6 @@ export function parsePhone(input: string): string | null {
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
   return null;
-}
-
-export function callerLabel(e164: string): string | undefined {
-  return DEMO_CALLERS.find((c) => c.number === e164)?.label;
 }
 
 /** The outside party: the caller on inbound, the dialed number on outbound. */
@@ -53,6 +48,35 @@ const dateTimeFmt = new Intl.DateTimeFormat("en-US", {
 export const formatTime = (ms: number) => timeFmt.format(ms);
 export const formatDateTime = (ms: number) => dateTimeFmt.format(ms);
 
+const shortTimeFmt = new Intl.DateTimeFormat("en-US", { timeZone: TIMEZONE, hour: "numeric", minute: "2-digit" });
+const weekdayFmt = new Intl.DateTimeFormat("en-US", { timeZone: TIMEZONE, weekday: "short" });
+const monthDayFmt = new Intl.DateTimeFormat("en-US", { timeZone: TIMEZONE, month: "short", day: "numeric" });
+const dayKeyFmt = new Intl.DateTimeFormat("en-CA", { timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** List-style time, like a phone: "2:14 PM" today, "Yesterday", "Mon" this week, then "Sep 3". */
+export function formatListTime(ms: number, now: number): string {
+  const day = (t: number) => Date.parse(`${dayKeyFmt.format(t)}T00:00:00Z`) / 86_400_000;
+  const diff = day(now) - day(ms);
+  if (diff <= 0) return shortTimeFmt.format(ms);
+  if (diff === 1) return "Yesterday";
+  if (diff < 7) return weekdayFmt.format(ms);
+  return monthDayFmt.format(ms);
+}
+
+export const formatShortTime = (ms: number) => shortTimeFmt.format(ms);
+
+const dayHeadingFmt = new Intl.DateTimeFormat("en-US", { timeZone: TIMEZONE, weekday: "long", month: "short", day: "numeric" });
+export const formatDayHeading = (ms: number) => dayHeadingFmt.format(ms);
+/** Same calendar day in the office time zone. */
+export const sameDay = (a: number, b: number) => dayKeyFmt.format(a) === dayKeyFmt.format(b);
+
+/** "Ana Morales" → "AM", "(845) 555-0111" → "#". */
+export function initialsOf(name: string): string {
+  if (!/[a-zA-ZÀ-ÿ]/.test(name)) return "#";
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
 export type Tone = "success" | "caution" | "danger" | "info" | "neutral";
 
 export interface StatusView {
@@ -74,7 +98,16 @@ export type IconName =
   | "clock"
   | "phone"
   | "pause"
-  | "moon";
+  | "moon"
+  | "message"
+  | "contacts"
+  | "team"
+  | "settings"
+  | "search"
+  | "plus"
+  | "back"
+  | "send"
+  | "alert";
 
 const LIVE_STATE: Record<Exclude<CallState, "ended">, StatusView> = {
   menu: { label: "In menu", tone: "info", icon: "menu" },

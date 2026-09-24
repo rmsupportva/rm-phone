@@ -12,12 +12,16 @@ Live demo: https://rmsupportva.github.io/rm-phone/
 
 | Area | Behaviour |
 |---|---|
+| Layout | Google Voice style: menu (Calls, Messages, Voicemail, Contacts), a list, and the open item. On a phone: bottom menu, list then detail |
+| Messages | Conversations with unread counts and search. Open a thread, reply (Enter sends), see Sending / Delivered / Not sent + Retry, message length counter. STOP / START handled automatically with one confirmation text |
+| Contacts | A–Z list with search, contact card with every number (Call / Text), notes and recent activity; add, edit, delete. Every screen shows contact names instead of numbers |
+| Your phone | A floating panel for the person using the app: incoming ring (Answer / Decline), the call in progress, wrap-up |
 | Office hours | Weekdays 9–5, closed Shabbat/Sunday, holidays (Sukkot 2026), candle-lighting early close on winter Fridays |
 | Phone menu | Language (1 English / 2 Español), then 1 speak with someone / 2 leave a message. No key: English, then ring the team |
 | Ringing | Every available VA rings at once for 30 s, then voicemail. If the last ringing VA declines, the caller goes to voicemail immediately |
 | Voicemail | Hanging up during the greeting is a **missed call to return**, not an empty voicemail |
 | Softphones | Answer, decline, hang up, dial out, wrap-up, status (available / away / offline) |
-| History | Filters (to call back, voicemail, talked, outgoing), details with timeline, recording and a made-up transcript |
+| Calls & voicemail | Filters (missed, talked, outgoing), unheard voicemails, details with timeline, recording and a made-up transcript, Call back / Text / Add contact |
 | Demo clock | Jump to any moment (e.g. Friday after candle lighting) and speed time up |
 
 ## How it is built

@@ -5,9 +5,9 @@
  * transcript. All data it produces is fake.
  */
 import type { Clock } from "../clock";
-import type { PhoneProvider, ProviderEvent } from "../provider";
+import type { MessagingEvent, MessagingProvider, PhoneProvider, ProviderEvent } from "../provider";
 import type { Effect, Lang, TranscriptTurn } from "../types";
-import { fakeTranscript } from "./fakeData";
+import { fakeTranscript, MOCK_LANDLINE, VOICEMAIL_TEXT } from "./fakeData";
 
 interface Line {
   lang: Lang;
@@ -23,11 +23,14 @@ export interface MockOptions {
   newId: () => string;
   /** Seconds the voicemail greeting plays before recording starts. */
   greetingSeconds: number;
+  /** Run something a little later (texts take a moment to deliver). Tests pass an immediate version. */
+  defer?: (fn: () => void, ms: number) => void;
 }
 
-export class MockProvider implements PhoneProvider {
+export class MockProvider implements PhoneProvider, MessagingProvider {
   readonly name = "Pretend phone company";
   private handlers = new Set<(e: ProviderEvent) => void>();
+  private messageHandlers = new Set<(e: MessagingEvent) => void>();
   private lines = new Map<string, Line>();
 
   constructor(private readonly opts: MockOptions) {}
@@ -35,6 +38,31 @@ export class MockProvider implements PhoneProvider {
   subscribe(handler: (e: ProviderEvent) => void): () => void {
     this.handlers.add(handler);
     return () => this.handlers.delete(handler);
+  }
+
+  subscribeMessages(handler: (e: MessagingEvent) => void): () => void {
+    this.messageHandlers.add(handler);
+    return () => this.messageHandlers.delete(handler);
+  }
+
+  sendMessage(message: { id: string; to: string; from: string; body: string }): void {
+    const defer = this.opts.defer ?? ((fn, ms) => setTimeout(fn, ms));
+    defer(() => {
+      const event: MessagingEvent =
+        message.to === MOCK_LANDLINE
+          ? { type: "message_status", id: message.id, status: "failed", error: "Not a mobile number" }
+          : { type: "message_status", id: message.id, status: "delivered" };
+      this.emitMessage(event);
+    }, 900);
+  }
+
+  /** Demo control: someone texts the main line. */
+  receiveText(from: string, body: string): void {
+    this.emitMessage({ type: "message_received", id: this.opts.newId(), from, body });
+  }
+
+  private emitMessage(event: MessagingEvent) {
+    for (const h of this.messageHandlers) h(event);
   }
 
   perform(callId: string, effect: Effect): void {
@@ -116,7 +144,11 @@ export class MockProvider implements PhoneProvider {
     this.emit({
       type: "call_input",
       callId,
-      input: { type: "voicemail_saved", recording: { id: this.opts.newId(), seconds } },
+      input: {
+        type: "voicemail_saved",
+        recording: { id: this.opts.newId(), seconds },
+        transcript: seconds > 0 ? [{ atSecond: 0, speaker: "caller", text: VOICEMAIL_TEXT[line.lang] }] : undefined,
+      },
     });
   }
 

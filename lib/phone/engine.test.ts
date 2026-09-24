@@ -22,11 +22,13 @@ function setup(start = OPEN) {
     clock,
     newId,
     greetingSeconds: DEMO_SETTINGS.voicemailGreetingSeconds,
+    defer: (fn) => fn(),
   });
   const errors: string[] = [];
   const engine = new PhoneEngine({
     store,
     provider,
+    messaging: provider,
     clock,
     settings: DEMO_SETTINGS,
     newId,
@@ -106,7 +108,9 @@ describe("engine + pretend phone company", () => {
 
   it("outbound: the far end answers, the agent hangs up", async () => {
     const t = setup();
-    const id = t.engine.placeOutbound("a", "+18455550122");
+    const placed = t.engine.placeOutbound("a", "+18455550122");
+    if (!placed.ok) throw new Error(placed.reason);
+    const id = placed.id;
     expect(t.call(id).state).toBe("dialing");
     t.clock.advance(5);
     t.provider.farEndAnswers(id);
@@ -117,12 +121,13 @@ describe("engine + pretend phone company", () => {
     expect(t.call(id).recording?.seconds).toBe(20);
   });
 
-  it("refuses to dial for an agent who is not available, and reports it", () => {
+  it("refuses to dial for an agent who is not available, and says why", () => {
     const t = setup();
     t.engine.setPresence("a", "away");
-    t.engine.placeOutbound("a", "+18455550122");
+    const placed = t.engine.placeOutbound("a", "+18455550122");
+    expect(placed).toEqual({ ok: false, reason: "A is not available." });
     expect(t.store.listCalls()).toEqual([]);
-    expect(t.errors).toEqual(["engine.placeOutbound"]);
+    expect(t.errors).toEqual([]);
   });
 
   it("an input for an unknown call is reported, not thrown", () => {

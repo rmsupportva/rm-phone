@@ -18,3 +18,13 @@ export interface PhoneProvider {
   perform(callId: string, effect: Effect): void;
   subscribe(handler: (event: ProviderEvent) => void): () => void;
 }
+
+/** Text messages, the same way: send out, and hear back about delivery and new texts. */
+export type MessagingEvent =
+  | { type: "message_received"; id: string; from: string; body: string }
+  | { type: "message_status"; id: string; status: "delivered" | "failed"; error?: string };
+
+export interface MessagingProvider {
+  sendMessage(message: { id: string; to: string; from: string; body: string }): void;
+  subscribeMessages(handler: (event: MessagingEvent) => void): () => void;
+}

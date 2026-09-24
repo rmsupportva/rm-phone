@@ -3,9 +3,9 @@
 import { useState, type FormEvent } from "react";
 import { DEMO_CALLERS } from "@/lib/phone/mock/fakeData";
 import type { Agent, Call, Presence } from "@/lib/phone/types";
-import { callerLabel, formatDuration, formatPhone, parsePhone, PRESENCE_VIEW } from "./format";
+import { formatDuration, formatPhone, parsePhone, PRESENCE_VIEW } from "./format";
 import { Icon } from "./Icon";
-import { useNow, usePhoneData, useRuntime } from "./PhoneContext";
+import { useDirectory, useNow, usePhoneData, useRuntime } from "./PhoneContext";
 import { StatusBadge } from "./StatusBadge";
 
 export function TeamPanel() {
@@ -103,7 +103,8 @@ function IncomingCall({ call, agent }: { call: Call; agent: Agent }) {
   const { engine } = useRuntime();
   const now = useNow();
   const left = call.deadline ? Math.max(0, Math.ceil((call.deadline.at - now) / 1000)) : 0;
-  const who = callerLabel(call.from);
+  const { contactFor } = useDirectory();
+  const who = contactFor(call.from)?.name;
 
   return (
     <div className="incoming" role="group" aria-label={`Incoming call from ${who ?? formatPhone(call.from)}`}>
@@ -134,15 +135,17 @@ function IncomingCall({ call, agent }: { call: Call; agent: Agent }) {
 
 function ActiveCall({ call, agent }: { call: Call; agent: Agent }) {
   const { engine } = useRuntime();
+  const { contactFor } = useDirectory();
   const now = useNow();
   const number = call.direction === "inbound" ? call.from : call.to;
   const talking = call.state === "answered" && call.answeredAt !== undefined;
+  const name = contactFor(number)?.name;
 
   return (
     <div className="active-call">
       <p>
         <strong>{talking ? "On a call" : "Calling"}</strong> {formatPhone(number)}
-        {callerLabel(number) && <span className="muted"> · {callerLabel(number)}</span>}
+        {name && <span className="muted"> · {name}</span>}
       </p>
       <p className="call-clock" aria-live="off">
         {talking ? formatDuration((now - call.answeredAt!) / 1000) : "Ringing…"}
@@ -156,6 +159,7 @@ function ActiveCall({ call, agent }: { call: Call; agent: Agent }) {
 
 function DialPad({ agent }: { agent: Agent }) {
   const { engine } = useRuntime();
+  const { nameFor } = useDirectory();
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const inputId = `dial-${agent.id}`;
@@ -167,9 +171,13 @@ function DialPad({ agent }: { agent: Agent }) {
       setError("Enter a 10-digit US number.");
       return;
     }
+    const placed = engine.placeOutbound(agent.id, e164);
+    if (!placed.ok) {
+      setError(placed.reason);
+      return;
+    }
     setError(null);
     setValue("");
-    engine.placeOutbound(agent.id, e164);
   };
 
   return (
@@ -200,9 +208,9 @@ function DialPad({ agent }: { agent: Agent }) {
         </p>
       )}
       <div className="quick-dial">
-        {DEMO_CALLERS.slice(0, 3).map((c) => (
-          <button key={c.number} type="button" className="link-btn" onClick={() => setValue(formatPhone(c.number))}>
-            {c.label}
+        {DEMO_CALLERS.slice(0, 3).map((number) => (
+          <button key={number} type="button" className="link-btn" onClick={() => setValue(formatPhone(number))}>
+            {nameFor(number)}
           </button>
         ))}
       </div>

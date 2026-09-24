@@ -1,25 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CallDock } from "./CallDock";
+import { CallsView } from "./CallsView";
 import { ClockBar } from "./ClockBar";
-import { HistoryView } from "./HistoryView";
+import { ContactsView } from "./ContactsView";
 import { LiveView } from "./LiveView";
-import { RuntimeProvider } from "./PhoneContext";
-import { clearSavedDemo, createRuntime, type DemoError, type Runtime } from "./runtime";
+import { MessagesView } from "./MessagesView";
+import { RuntimeProvider, ShellProvider, usePhoneData, type Section, type Shell } from "./PhoneContext";
+import { clearSavedDemo, createRuntime, loadMe, saveMe, type DemoError, type Runtime } from "./runtime";
 import { SettingsView } from "./SettingsView";
-
-type Tab = "live" | "history" | "settings";
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: "live", label: "Live" },
-  { id: "history", label: "History" },
-  { id: "settings", label: "Settings" },
-];
+import { MeSelect, Sidebar } from "./Sidebar";
+import { Toasts, type Toast } from "./Toasts";
+import { VoicemailView } from "./VoicemailView";
 
 export function PhoneApp() {
   const [runtime, setRuntime] = useState<Runtime | null>(null);
   const [errors, setErrors] = useState<DemoError[]>([]);
-  const [tab, setTab] = useState<Tab>("live");
   const [generation, setGeneration] = useState(0);
 
   const onError = useCallback((e: DemoError) => setErrors((list) => [e, ...list].slice(0, 5)), []);
@@ -39,7 +36,7 @@ export function PhoneApp() {
   };
 
   return (
-    <>
+    <div className="app">
       <header className="app-header">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">
@@ -49,19 +46,6 @@ export function PhoneApp() {
             Phone <span className="brand-sub">new system</span>
           </span>
         </div>
-        <nav className="tabs" aria-label="Sections">
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className="tab"
-              aria-current={tab === t.id ? "page" : undefined}
-              onClick={() => setTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
         <span className="demo-flag" title="Nothing here is connected to a real phone line or real people.">
           Demo · fake data
         </span>
@@ -78,12 +62,7 @@ export function PhoneApp() {
               </button>
             </div>
           )}
-          <main className="page" id="main">
-            <h1 className="visually-hidden">RM Phone: new phone system demo</h1>
-            {tab === "live" && <LiveView />}
-            {tab === "history" && <HistoryView />}
-            {tab === "settings" && <SettingsView />}
-          </main>
+          <PhoneShell />
         </RuntimeProvider>
       ) : (
         <main className="page">
@@ -92,6 +71,62 @@ export function PhoneApp() {
           </p>
         </main>
       )}
-    </>
+    </div>
+  );
+}
+
+function PhoneShell() {
+  const { agents } = usePhoneData();
+  const [meId, setMeId] = useState(() => loadMe(agents[0]?.id ?? ""));
+  const [section, setSection] = useState<Section>("messages");
+  const [selection, setSelection] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const toastSeq = useRef(0);
+
+  const toast = useCallback((message: string, tone: "info" | "error" = "info") => {
+    const id = ++toastSeq.current;
+    setToasts((list) => [...list.slice(-2), { id, message, tone }]);
+    window.setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), 5000);
+  }, []);
+
+  const shell: Shell = useMemo(
+    () => ({
+      me: agents.find((a) => a.id === meId),
+      setMe: (id) => {
+        setMeId(id);
+        saveMe(id);
+      },
+      section,
+      selection,
+      navigate: (next, sel = null) => {
+        setSection(next);
+        setSelection(sel);
+      },
+      select: setSelection,
+      toast,
+    }),
+    [agents, meId, section, selection, toast],
+  );
+
+  return (
+    <ShellProvider value={shell}>
+      <div className="shell">
+        <Sidebar />
+        <main className="content" id="main">
+          <h1 className="visually-hidden">RM Phone: new phone system demo</h1>
+          <div className="me-mobile">
+            <MeSelect id="me-select-mobile" />
+          </div>
+          {section === "calls" && <CallsView />}
+          {section === "messages" && <MessagesView />}
+          {section === "voicemail" && <VoicemailView />}
+          {section === "contacts" && <ContactsView />}
+          {section === "team" && <LiveView />}
+          {section === "settings" && <SettingsView />}
+        </main>
+      </div>
+      <CallDock />
+      <Toasts toasts={toasts} onDismiss={(id) => setToasts((l) => l.filter((t) => t.id !== id))} />
+    </ShellProvider>
   );
 }

@@ -251,6 +251,7 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
         end(call, now, "missed", fx);
       } else {
         call.voicemail = input.recording;
+        if (input.transcript) call.transcript = input.transcript;
         log(call, now, "voicemail_saved", `${input.recording.seconds}s`);
         end(call, now, "voicemail", fx);
       }

@@ -5,12 +5,13 @@
  */
 import { SimClock } from "@/lib/phone/clock";
 import { PhoneEngine } from "@/lib/phone/engine";
-import { DEMO_AGENTS } from "@/lib/phone/mock/fakeData";
+import { demoSeed } from "@/lib/phone/mock/fakeData";
 import { MockProvider } from "@/lib/phone/mock/mockProvider";
 import { DEMO_SETTINGS } from "@/lib/phone/settings";
 import { MemoryStore, type Snapshot } from "@/lib/phone/store";
 
-const STORAGE_KEY = "rm-phone-demo-v1";
+const STORAGE_KEY = "rm-phone-demo-v2";
+const OLD_KEYS = ["rm-phone-demo-v1"];
 
 export interface DemoError {
   at: number;
@@ -29,7 +30,7 @@ export interface Runtime {
 export function createRuntime(onError: (e: DemoError) => void): Runtime {
   const clock = new SimClock();
   const newId = () => crypto.randomUUID();
-  const store = new MemoryStore(loadSnapshot());
+  const store = new MemoryStore(loadSnapshot(clock.now()));
   const provider = new MockProvider({
     clock,
     newId,
@@ -38,6 +39,7 @@ export function createRuntime(onError: (e: DemoError) => void): Runtime {
   const engine = new PhoneEngine({
     store,
     provider,
+    messaging: provider,
     clock,
     settings: DEMO_SETTINGS,
     newId,
@@ -75,14 +77,22 @@ export function clearSavedDemo() {
   }
 }
 
-function loadSnapshot(): Snapshot {
-  const fresh: Snapshot = { calls: [], agents: structuredClone(DEMO_AGENTS) };
+function loadSnapshot(now: number): Snapshot {
+  const fresh = demoSeed(now);
   try {
+    for (const k of OLD_KEYS) window.localStorage.removeItem(k);
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return fresh;
-    const saved = JSON.parse(raw) as Snapshot;
+    const saved = JSON.parse(raw) as Partial<Snapshot>;
     if (!Array.isArray(saved.calls) || !Array.isArray(saved.agents)) return fresh;
-    return saved;
+    return {
+      calls: saved.calls,
+      agents: saved.agents,
+      contacts: Array.isArray(saved.contacts) ? saved.contacts : fresh.contacts,
+      messages: Array.isArray(saved.messages) ? saved.messages : fresh.messages,
+      optOuts: Array.isArray(saved.optOuts) ? saved.optOuts : fresh.optOuts,
+      reads: saved.reads && typeof saved.reads === "object" ? saved.reads : fresh.reads,
+    };
   } catch {
     return fresh;
   }
@@ -90,10 +100,32 @@ function loadSnapshot(): Snapshot {
 
 function saveSnapshot(snapshot: Snapshot) {
   try {
-    // Keep the newest 200 calls so the demo never fills the browser.
-    const trimmed = { ...snapshot, calls: snapshot.calls.slice(0, 200) };
+    // Keep the newest 200 calls and 1,000 texts so the demo never fills the browser.
+    const trimmed: Snapshot = {
+      ...snapshot,
+      calls: snapshot.calls.slice(0, 200),
+      messages: snapshot.messages.slice(-1000),
+    };
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
   } catch {
     // Storage full or blocked: the demo keeps working, it just won't remember.
+  }
+}
+
+const ME_KEY = "rm-phone-me";
+
+export function loadMe(fallback: string): string {
+  try {
+    return window.localStorage.getItem(ME_KEY) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function saveMe(agentId: string) {
+  try {
+    window.localStorage.setItem(ME_KEY, agentId);
+  } catch {
+    // Not remembered; the choice still applies for this visit.
   }
 }

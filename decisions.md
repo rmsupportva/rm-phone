@@ -2,6 +2,14 @@
 
 Newest first. Each entry: what was decided, why, and what it costs.
 
+## 2026-09-24: Google Voice-style layout with texts and contacts
+
+- **Decision:** the app is organised like Google Voice: a menu (Calls, Messages, Voicemail, Contacts, then Team & demo, Settings), a list, and the open item beside it. On a phone the menu moves to the bottom and the list and the open item take turns.
+- **Why:** owner request ("like Google Voice… all your contacts housed there… click a text and it opens… send a text").
+- **Texting rules built in:** STOP / STOPALL / UNSUBSCRIBE / CANCEL / END / QUIT unsubscribe a number and get exactly one confirmation; START / UNSTOP resubscribe. Texting an unsubscribed number is refused with a reason (calling is still allowed). Message length follows SMS rules (160 characters, or 70 once an emoji or accent is used).
+- **Shared team inbox:** texts and calls belong to the main line, not to one person. Outgoing texts record who sent them. "Using the app as" (demo only) picks the person, which the real build replaces with the signed-in user.
+- **Demo data:** 8 fake contacts, 4 conversations and 6 past calls, dated relative to the moment the demo opens.
+
 ## 2026-09-22: Build the new phone system as its own project first
 
 - **Decision:** a brand-new phone system in its own GitHub project (`rmsupportva/rm-phone`), published on GitHub Pages. It moves into CareHub when finished; the old RM Support telephony keeps running until then and is closed after.

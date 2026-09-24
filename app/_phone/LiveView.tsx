@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { CallerPanel } from "./CallerPanel";
 import { CallTimeline } from "./CallTimeline";
-import { callerLabel, callStatus, formatPhone, formatTime, otherParty } from "./format";
+import { callStatus, formatTime, otherParty } from "./format";
 import { Icon } from "./Icon";
-import { usePhoneData } from "./PhoneContext";
+import { useDirectory, usePhoneData } from "./PhoneContext";
 import { StatusBadge } from "./StatusBadge";
 import { TeamPanel } from "./TeamPanel";
 
@@ -21,6 +21,7 @@ export function LiveView() {
 
 function ActivityPanel() {
   const { calls } = usePhoneData();
+  const { nameFor } = useDirectory();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const recent = calls.slice(0, 8);
   const selected = recent.find((c) => c.id === selectedId) ?? recent[0];
@@ -37,7 +38,7 @@ function ActivityPanel() {
         <>
           <ul className="call-picker" aria-label="Recent calls">
             {recent.map((c) => {
-              const who = callerLabel(otherParty(c)) ?? formatPhone(otherParty(c));
+              const who = nameFor(otherParty(c));
               return (
                 <li key={c.id}>
                   <button

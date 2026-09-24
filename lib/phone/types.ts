@@ -17,6 +17,31 @@ export interface Agent {
   queueIds: string[];
 }
 
+export interface Contact {
+  id: string;
+  name: string;
+  numbers: { label: string; e164: string }[];
+  notes?: string;
+  createdAt: number;
+}
+
+export type MessageStatus = "sending" | "delivered" | "failed" | "received";
+
+export interface Message {
+  id: string;
+  /** The other party's number: the conversation this message belongs to. */
+  number: string;
+  direction: "inbound" | "outbound";
+  body: string;
+  at: number;
+  status: MessageStatus;
+  /** Who sent it (outbound). Absent on automatic replies. */
+  agentId?: string;
+  /** Sent by the system itself (e.g. the STOP confirmation). */
+  automatic?: boolean;
+  error?: string;
+}
+
 export type CallDirection = "inbound" | "outbound";
 
 /**
@@ -87,6 +112,8 @@ export interface Call {
   agentId?: string;
   deadline?: { kind: TimerKind; at: number };
   voicemail?: Recording;
+  /** When someone first opened the voicemail. Unheard voicemails are highlighted. */
+  heardAt?: number;
   recording?: Recording;
   transcript?: TranscriptTurn[];
   /** Talk time in whole seconds, set when an answered call ends. */
@@ -102,7 +129,7 @@ export type CallInput =
   | { type: "agent_unavailable"; agentId: string }
   | { type: "caller_hung_up" }
   | { type: "agent_hung_up"; agentId: string }
-  | { type: "voicemail_saved"; recording: Recording }
+  | { type: "voicemail_saved"; recording: Recording; transcript?: TranscriptTurn[] }
   | { type: "far_end_answered" }
   | { type: "far_end_failed" }
   | { type: "recording_ready"; recording: Recording; transcript: TranscriptTurn[] }
