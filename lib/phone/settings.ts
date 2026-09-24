@@ -44,6 +44,8 @@ export interface PhoneSettings {
   transferSeconds: number;
   /** How long someone being added to a call (e.g. a VA) rings. */
   inviteSeconds: number;
+  /** Call VA: how long the agent's own VA rings before every VA is rung. */
+  inviteFirstSeconds: number;
   /** How long a call stays parked before the whole team is rung. */
   parkSeconds: number;
 }
@@ -90,6 +92,7 @@ export const DEMO_SETTINGS: PhoneSettings = {
   maxCallSeconds: 4 * 60 * 60,
   transferSeconds: 25,
   inviteSeconds: 18,
+  inviteFirstSeconds: 8,
   parkSeconds: 5 * 60,
 };
 

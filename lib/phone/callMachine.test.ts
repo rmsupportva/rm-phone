@@ -406,6 +406,7 @@ function sensibleInput(c: Call, rand: () => number): CallInput {
           { type: "transfer", agentId: agent, mode, target: { kind: "queue" } },
           { type: "transfer", agentId: agent, mode, target: { kind: "external", to: "+18455550199" } },
           { type: "invite", agentId: agent, targets: [other] },
+          { type: "invite", agentId: agent, targets: [other], thenTargets: ["a", "b", "c"] },
           { type: "participant_left", agentId: pick(c.participants ?? [other], rand) },
           { type: "caller_hung_up" },
           { type: "agent_hung_up", agentId: agent },

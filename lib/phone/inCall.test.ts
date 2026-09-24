@@ -245,3 +245,58 @@ describe("adding someone to the call (Call VA)", () => {
     expect(h.kinds()).toContain("invite_failed");
   });
 });
+
+describe("Call VA in two rounds (the old phone's cascade)", () => {
+  /** A on the call; B is A's own VA; C (and D) are the VA pool. */
+  const withPool = () => {
+    const team = [
+      ...agents().map((a) => ({ ...a, presence: "available" as const })),
+      { id: "d", name: "D", presence: "available" as const, speaksSpanish: true, queueIds: ["screening"] },
+    ];
+    return harness(OPEN, team).answeredBy("a");
+  };
+
+  it("rings my own VA first, for 8 seconds", () => {
+    const h = withPool().send({ type: "invite", agentId: "a", targets: ["b"], thenTargets: ["b", "c", "d"] });
+    expect(h.effects).toContainEqual({ type: "ring", agentIds: ["b"] });
+    expect(h.call.deadline).toEqual({ kind: "invite", at: h.now + 8_000 });
+  });
+
+  it("my VA doesn't answer: every VA rings at once for 18 seconds (my VA included again)", () => {
+    const h = withPool().send({ type: "invite", agentId: "a", targets: ["b"], thenTargets: ["b", "c", "d"] }).expire();
+    expect(h.effects).toContainEqual({ type: "stop_ringing", agentIds: ["b"] });
+    expect(h.effects).toContainEqual({ type: "ring", agentIds: ["b", "c", "d"] });
+    expect(h.call.deadline).toEqual({ kind: "invite", at: h.now + 18_000 });
+    h.send({ type: "agent_answered", agentId: "d" });
+    expect(h.call.participants).toEqual(["d"]);
+    expect(h.effects).toContainEqual({ type: "stop_ringing", agentIds: ["b", "c"] });
+  });
+
+  it("my VA declines: the pool rings straight away", () => {
+    const h = withPool().send({ type: "invite", agentId: "a", targets: ["b"], thenTargets: ["c", "d"] });
+    h.send({ type: "agent_declined", agentId: "b" });
+    expect(h.effects).toContainEqual({ type: "ring", agentIds: ["c", "d"] });
+  });
+
+  it("nobody in either round: nothing changes for the caller", () => {
+    const h = withPool().send({ type: "invite", agentId: "a", targets: ["b"], thenTargets: ["c"] }).expire().expire();
+    expect(h.call.inviting).toBeUndefined();
+    expect(h.call.state).toBe("answered");
+    expect(h.kinds()).toContain("invite_no_answer");
+    expect(h.call.deadline?.kind).toBe("max_call");
+  });
+
+  it("no own VA (or they're away): the pool rings at once", () => {
+    const h = withPool().send({ type: "invite", agentId: "a", targets: [], thenTargets: ["c", "d"] });
+    expect(h.effects).toContainEqual({ type: "ring", agentIds: ["c", "d"] });
+    expect(h.call.deadline).toEqual({ kind: "invite", at: h.now + 18_000 });
+  });
+
+  it("a VA in wrap-up can still be asked to join (old pool rule), an away one can't", () => {
+    const team = agents().map((a) =>
+      a.id === "b" ? { ...a, presence: "wrap_up" as const } : a.id === "c" ? { ...a, presence: "away" as const } : a,
+    );
+    const h = harness(OPEN, team).answeredBy("a").send({ type: "invite", agentId: "a", targets: [], thenTargets: ["b", "c"] });
+    expect(h.effects).toContainEqual({ type: "ring", agentIds: ["b"] });
+  });
+});

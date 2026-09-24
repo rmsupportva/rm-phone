@@ -150,16 +150,17 @@ export function stepInCall(
     /* ---------- Add someone (e.g. a VA to translate) ---------- */
     case "invite": {
       if (!mine(input.agentId) || call.inviting || t) return unchanged;
-      const already = new Set([input.agentId, ...(call.participants ?? [])]);
-      const targets = input.targets.filter((id) => !already.has(id) && isAvailable(ctx, id));
-      if (targets.length === 0) {
+      const cascade = input.thenTargets !== undefined;
+      const first = joinable(call, ctx, input.agentId, input.targets);
+      const next = cascade ? input.thenTargets! : undefined;
+      if (first.length === 0) {
+        // Call VA with the agent's own VA not reachable: straight to everyone.
+        if (next && startInviteRound(call, ctx, fx, input.agentId, next, ctx.settings.inviteSeconds)) return done;
         log(call, now, "invite_failed", "Nobody available to add");
         return done;
       }
-      call.inviting = { byAgentId: input.agentId, ringingAgentIds: targets, startedAt: now };
-      fx.push({ type: "ring", agentIds: targets });
-      setDeadline(call, "invite", now, ctx.settings.inviteSeconds);
-      log(call, now, "inviting", targets.map((id) => agentName(ctx, id)).join(", "));
+      const seconds = cascade ? ctx.settings.inviteFirstSeconds : ctx.settings.inviteSeconds;
+      startInviteRound(call, ctx, fx, input.agentId, first, seconds, next);
       return done;
     }
 
@@ -196,7 +197,7 @@ export function stepInCall(
         return done;
       }
       if (call.inviting?.ringingAgentIds.includes(a)) {
-        if (!isAvailable(ctx, a)) return null;
+        if (!canJoin(ctx, a)) return null;
         const others = call.inviting.ringingAgentIds.filter((x) => x !== a);
         if (others.length) fx.push({ type: "stop_ringing", agentIds: others });
         call.inviting = undefined;
@@ -226,11 +227,7 @@ export function stepInCall(
         call.inviting.ringingAgentIds = call.inviting.ringingAgentIds.filter((x) => x !== a);
         fx.push({ type: "stop_ringing", agentIds: [a] });
         log(call, now, "declined", agentName(ctx, a));
-        if (call.inviting.ringingAgentIds.length === 0) {
-          call.inviting = undefined;
-          restoreMaxCall(call, ctx);
-          log(call, now, "invite_no_answer");
-        }
+        if (call.inviting.ringingAgentIds.length === 0) nextInviteRoundOrGiveUp(call, ctx, fx);
         return done;
       }
       return null;
@@ -278,10 +275,10 @@ export function stepInCall(
       if (input.kind === "transfer") {
         transferFailed(call, ctx, fx, `No answer in ${ctx.settings.transferSeconds}s`);
       } else if (input.kind === "invite") {
-        if (call.inviting) fx.push({ type: "stop_ringing", agentIds: call.inviting.ringingAgentIds });
-        call.inviting = undefined;
-        restoreMaxCall(call, ctx);
-        log(call, now, "invite_no_answer");
+        if (call.inviting?.ringingAgentIds.length) {
+          fx.push({ type: "stop_ringing", agentIds: call.inviting.ringingAgentIds });
+        }
+        nextInviteRoundOrGiveUp(call, ctx, fx);
       } else if (pastMaxCall(call, ctx)) {
         log(call, now, "safety_cap", "Call reached the maximum length");
         fx.push({ type: "hang_up_caller" });
@@ -371,4 +368,46 @@ function removeParticipant(call: Call, ctx: MachineContext, fx: Effect[], agentI
   call.participants = call.participants?.filter((p) => p !== agentId);
   if (call.participants?.length === 0) call.participants = undefined;
   log(call, ctx.now, "left", agentName(ctx, agentId));
+}
+
+/* ---------- Adding someone: one round, or Call VA's two ---------- */
+
+/** Old Call VA pool rule: someone available, or in wrap-up, can be asked to join. */
+function canJoin(ctx: MachineContext, id: string): boolean {
+  const p = ctx.agents.find((a) => a.id === id)?.presence;
+  return p === "available" || p === "wrap_up";
+}
+
+/** Who from `ids` can be rung to join: not the agent, not already on the call, reachable. */
+function joinable(call: Call, ctx: MachineContext, byAgentId: string, ids: string[]): string[] {
+  const already = new Set([byAgentId, ...(call.participants ?? [])]);
+  return [...new Set(ids)].filter((id) => !already.has(id) && canJoin(ctx, id));
+}
+
+/** Ring one round. Returns false when nobody in it can be rung. */
+function startInviteRound(
+  call: Call,
+  ctx: MachineContext,
+  fx: Effect[],
+  byAgentId: string,
+  ids: string[],
+  seconds: number,
+  nextRound?: string[],
+): boolean {
+  const ring = joinable(call, ctx, byAgentId, ids);
+  if (ring.length === 0) return false;
+  call.inviting = { byAgentId, ringingAgentIds: ring, startedAt: ctx.now, ...(nextRound && { nextRound }) };
+  fx.push({ type: "ring", agentIds: ring });
+  setDeadline(call, "invite", ctx.now, seconds);
+  log(call, ctx.now, "inviting", ring.map((id) => agentName(ctx, id)).join(", "));
+  return true;
+}
+
+/** The current round got no answer: ring the next one (everyone), or give up. */
+function nextInviteRoundOrGiveUp(call: Call, ctx: MachineContext, fx: Effect[]) {
+  const inv = call.inviting;
+  call.inviting = undefined;
+  if (inv?.nextRound && startInviteRound(call, ctx, fx, inv.byAgentId, inv.nextRound, ctx.settings.inviteSeconds)) return;
+  restoreMaxCall(call, ctx);
+  log(call, ctx.now, "invite_no_answer");
 }

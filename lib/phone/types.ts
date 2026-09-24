@@ -118,6 +118,8 @@ export interface InviteState {
   byAgentId: string;
   ringingAgentIds: string[];
   startedAt: number;
+  /** Call VA: who rings next if nobody in the first round answers. */
+  nextRound?: string[];
 }
 
 export type HoursState = "open" | "closed" | "holiday" | "early_close";
@@ -210,7 +212,12 @@ export type CallInput =
   | { type: "transfer"; agentId: string; mode: "blind" | "warm"; target: TransferTarget }
   | { type: "transfer_complete"; agentId: string }
   | { type: "transfer_cancel"; agentId: string }
-  | { type: "invite"; agentId: string; targets: string[] }
+  /**
+   * Add someone to the call. With `thenTargets` it is the old phone's Call VA:
+   * `targets` (the agent's own VA) ring first for inviteFirstSeconds, then
+   * everyone available in `thenTargets` rings at once for inviteSeconds.
+   */
+  | { type: "invite"; agentId: string; targets: string[]; thenTargets?: string[] }
   | { type: "invite_cancel"; agentId: string }
   | { type: "participant_left"; agentId: string }
   // The external party of a transfer, from the carrier:
