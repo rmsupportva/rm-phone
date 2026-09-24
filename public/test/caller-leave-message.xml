@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!-- Automated TEST caller for the RM phone system: waits through the closed
+     message and the greeting, leaves a short spoken message, hangs up.
+     Only ever dialled at our own test number. -->
+<Response>
+  <Pause length="20"/>
+  <Say>This is an automated test message from the R M phone system test. Please ignore it.</Say>
+  <Pause length="2"/>
+  <Hangup/>
+</Response>

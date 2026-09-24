@@ -1,0 +1,6 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!-- Automated TEST caller: hangs up during the greeting (should count as missed). -->
+<Response>
+  <Pause length="3"/>
+  <Hangup/>
+</Response>

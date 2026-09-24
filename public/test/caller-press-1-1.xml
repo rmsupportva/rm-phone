@@ -1,0 +1,10 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!-- Automated TEST caller for office hours: English (1), then "speak with someone" (1), then waits on hold. -->
+<Response>
+  <Pause length="4"/>
+  <Play digits="1"/>
+  <Pause length="4"/>
+  <Play digits="1"/>
+  <Pause length="45"/>
+  <Hangup/>
+</Response>

@@ -1,0 +1,7 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<!-- Automated TEST "cell phone": answers, says hello, stays on 30 s. Used as a pretend agent cell. -->
+<Response>
+  <Say>Hello, this is the automated test phone.</Say>
+  <Pause length="30"/>
+  <Hangup/>
+</Response>
