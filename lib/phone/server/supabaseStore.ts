@@ -44,7 +44,7 @@ export function toRow(call: Call) {
     started_at: iso(call.startedAt),
     answered_at: iso(call.answeredAt),
     ended_at: iso(call.endedAt),
-    seconds: call.talkSeconds ?? null,
+    seconds: call.talkSeconds ?? 0, // NOT NULL in phone_calls: 0 until a conversation ends
     result: resultFor(call),
     recorded: Boolean(call.recording),
   };

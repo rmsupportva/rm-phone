@@ -157,6 +157,12 @@ describe("database columns", () => {
     expect(row.machine).toBe(done!.call);
   });
 
+  it("a live call saves 0 talk seconds (the column is NOT NULL)", async () => {
+    const t = setup();
+    const r = await startInboundCall(t.deps, "c1", "+18455550111", "CA1");
+    expect(toRow(r!.call).seconds).toBe(0);
+  });
+
   it("result is null while a call is live, and every end reason has a result", () => {
     const base = { state: "ended" } as Call;
     expect(resultFor({ ...base, state: "ringing" } as Call)).toBeNull();
