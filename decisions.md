@@ -2,6 +2,11 @@
 
 Newest first. Each entry: what was decided, why, and what it costs.
 
+## 2026-09-24: A separate number for testing incoming calls
+
+- **Decision:** buy +1 (929) 412-1489 (SignalWire, same account as the old phone; voice only) for testing incoming calls on the new system. Owner approved the purchase.
+- **Why:** all 6 existing numbers had real incoming calls in the last 30 days (21 to 53 each, from SignalWire's call log), so moving any of them would send real callers to an untested system. No 718 or 347 numbers were available; the owner chose 929 (NYC, covers the Bronx) over waiting.
+- **Next:** f0 points the number at the survey site's inbound webhook after the caller-script code is merged, with the owner's OK. Release the number after the switch.
 ## 2026-09-24: In-call features and running calls from a database
 
 - **Hold, park, transfer and "add a VA" live in the call brain** (`lib/phone/inCall.ts`), not only in screens. Requested by the session building the survey site's phone, which will carry the effects out through SignalWire.
