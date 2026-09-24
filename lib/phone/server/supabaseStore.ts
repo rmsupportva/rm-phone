@@ -79,7 +79,7 @@ export function presenceFromRow(state: string): Presence {
  * main line for now; names are the part of the email before the @.
  */
 export async function loadTeam(db: SupabaseClient, queueId: string): Promise<Agent[]> {
-  const { data, error } = await db.from("phone_presence").select("agent_email, state, forward_to, forward_after_s");
+  const { data, error } = await db.from("phone_presence").select("agent_email, state, since, forward_to, forward_after_s");
   if (error) throw new Error(`load team: ${error.message}`);
   return (data ?? []).map((r: PresenceRow) => ({
     id: r.agent_email,
@@ -88,12 +88,15 @@ export async function loadTeam(db: SupabaseClient, queueId: string): Promise<Age
     speaksSpanish: false,
     queueIds: [queueId],
     ...(forwardFromRow(r) && { forward: forwardFromRow(r) }),
+    // "Longest idle": free since their last change of state.
+    ...(r.state === "available" && r.since && { idleSince: Date.parse(r.since) }),
   }));
 }
 
 interface PresenceRow {
   agent_email: string;
   state: string;
+  since: string | null;
   forward_to: string | null;
   forward_after_s: number | null;
 }
@@ -104,6 +107,13 @@ export function forwardFromRow(r: Pick<PresenceRow, "forward_to" | "forward_afte
   if (!to) return undefined;
   const after = Math.min(120, Math.max(0, r.forward_after_s ?? 15));
   return { to, afterSec: after, parallel: false };
+}
+
+/** Round-robin starting points per queue (table phone_queue_rotation). */
+export async function loadRotation(db: SupabaseClient): Promise<Record<string, number>> {
+  const { data, error } = await db.from("phone_queue_rotation").select("queue_id, next_index");
+  if (error) throw new Error(`load rotation: ${error.message}`);
+  return Object.fromEntries((data ?? []).map((r: { queue_id: string; next_index: number }) => [r.queue_id, r.next_index]));
 }
 
 export function supabaseCallsTable(db: SupabaseClient): CallsTable {
@@ -168,6 +178,12 @@ export function supabaseCallsTable(db: SupabaseClient): CallsTable {
         .limit(limit);
       if (error) throw fail("find due deadlines", error);
       return (data ?? []).map((r: { id: string; deadline_kind: string }) => ({ id: r.id, kind: r.deadline_kind as TimerKind }));
+    },
+
+    async advanceRotation(queueId, memberCount) {
+      // One atomic statement, like the old bump_queue_round_robin (see migration note in docs).
+      const { error } = await db.rpc("phone_advance_rotation", { p_queue_id: queueId, p_member_count: memberCount });
+      if (error) throw fail("advance rotation", error);
     },
 
     async setPresence(agentId, presence) {

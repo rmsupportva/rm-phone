@@ -19,11 +19,27 @@ export interface HoursSettings {
   earlyCloses: { date: LocalDate; closeAt: ClockTime; reason: string }[];
 }
 
+/**
+ * How a queue rings (old phone: queues.strategy):
+ *  - ring_all: everyone available at once, for ringSeconds;
+ *  - linear: one at a time in priority order, ringSeconds each;
+ *  - round_robin: one at a time, starting one further along each call;
+ *  - longest_idle: one at a time, whoever has been free longest first.
+ */
+export type RingStrategy = "ring_all" | "linear" | "round_robin" | "longest_idle";
+
 export interface QueueSettings {
   id: string;
   name: string;
-  /** How long every available agent rings before the caller goes to voicemail. */
+  /** How long agents ring: the whole ring for ring_all, per agent otherwise. */
   ringSeconds: number;
+  /** Default ring_all (what RM uses today). */
+  strategy?: RingStrategy;
+  /**
+   * When nobody answers (old phone: overflow_action, default voicemail).
+   * "queue" rings `queueId` once; it never chains to a third queue.
+   */
+  overflow?: { action: "voicemail" | "hangup" | "queue"; queueId?: string };
   /**
    * Old phone "callback offer" (off by default): when nobody at all can be
    * rung, the caller may press 1 to be called back instead of waiting.
@@ -34,7 +50,10 @@ export interface QueueSettings {
 export interface PhoneSettings {
   mainNumber: string;
   hours: HoursSettings;
+  /** The line's main queue. */
   queue: QueueSettings;
+  /** Other queues, e.g. an overflow target. */
+  otherQueues?: QueueSettings[];
   /** Seconds to wait for a key press at each menu step. */
   menuSeconds: number;
   /** How long the caller has to press 1 for a callback (old phone: 6 s). */
@@ -141,6 +160,10 @@ export const PROMPTS: Record<PromptId, Record<Lang, string>> = {
   callback_offer: {
     en: "All of our agents are currently busy. Press 1 for a callback, or stay on the line to leave a message.",
     es: "Todos nuestros agentes están ocupados. Oprima 1 para que le devolvamos la llamada, o permanezca en la línea para dejar un mensaje.",
+  },
+  no_agents: {
+    en: "Thank you for calling. Nobody is available to take your call right now. Please call again later. Goodbye.",
+    es: "Gracias por llamar. No hay nadie disponible para atender su llamada en este momento. Por favor llame mÃ¡s tarde. AdiÃ³s.",
   },
   callback_confirmed: {
     en: "Thank you. We'll call you back as soon as we can. Goodbye.",

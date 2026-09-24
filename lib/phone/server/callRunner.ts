@@ -33,6 +33,8 @@ export interface CallsTable {
   /** Calls whose deadline has passed, oldest first. */
   dueDeadlines(now: number, limit: number): Promise<{ id: string; kind: TimerKind }[]>;
   setPresence(agentId: string, presence: Presence): Promise<void>;
+  /** Round robin: move the queue's starting point on by one (wrapping at memberCount). */
+  advanceRotation(queueId: string, memberCount: number): Promise<void>;
 }
 
 export interface RunnerDeps {
@@ -46,7 +48,7 @@ export interface RunnerDeps {
 
 export interface RunResult {
   call: Call;
-  /** Effects for the carrier to carry out. Presence changes are already saved. */
+  /** Effects for the carrier to carry out. Presence and round-robin changes are already saved. */
   effects: Effect[];
 }
 
@@ -56,9 +58,10 @@ export async function startInboundCall(
   id: string,
   from: string,
   providerSid: string,
+  opts: { preferredAgentId?: string } = {},
 ): Promise<RunResult | null> {
   const ctx = await deps.context();
-  return insertNew(deps, startInbound(id, from, ctx), providerSid);
+  return insertNew(deps, startInbound(id, from, ctx, opts), providerSid);
 }
 
 /** `agentCell`: call from the agent's own phone, which rings first (see startOutbound). */
@@ -125,6 +128,7 @@ async function finish(deps: RunnerDeps, before: Call | undefined, result: StepRe
   if (newEntries.length) writes.push(deps.table.appendEvents(result.call.id, newEntries));
   for (const e of result.effects) {
     if (e.type === "set_presence") writes.push(deps.table.setPresence(e.agentId, e.presence));
+    else if (e.type === "advance_rotation") writes.push(deps.table.advanceRotation(e.queueId, e.memberCount));
     else carrier.push(e);
   }
   // The call itself is already saved; these are records and presence. Report,

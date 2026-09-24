@@ -40,6 +40,8 @@ export type ActionResult<T = string> = { ok: true; id: T } | { ok: false; reason
 
 export class PhoneEngine {
   private mailbox: (() => void)[] = [];
+  /** Round-robin starting point per queue (the demo keeps it in memory). */
+  private rotation: Record<string, number> = {};
   private draining = false;
   private unsubscribers: (() => void)[] = [];
 
@@ -339,6 +341,11 @@ export class PhoneEngine {
         this.writePresence(effect.agentId, effect.presence);
         continue;
       }
+      if (effect.type === "advance_rotation") {
+        const next = (this.rotation[effect.queueId] ?? 0) + 1;
+        this.rotation = { ...this.rotation, [effect.queueId]: next % Math.max(1, effect.memberCount) };
+        continue;
+      }
       try {
         this.deps.provider.perform(callId, effect);
       } catch (e) {
@@ -358,6 +365,7 @@ export class PhoneEngine {
       now: this.deps.clock.now(),
       settings: this.deps.settings,
       agents: this.deps.store.getAgents(),
+      rotation: this.rotation,
     };
   }
 }

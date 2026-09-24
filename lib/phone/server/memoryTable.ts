@@ -9,6 +9,7 @@ export class MemoryTable implements CallsTable {
   rows = new Map<string, { call: Call; version: number; providerSid?: string }>();
   events: { callId: string; entry: TimelineEntry }[] = [];
   presence = new Map<string, Presence>();
+  rotation: Record<string, number> = {};
   /** Test hook: runs once just before the next update, to simulate a concurrent writer. */
   beforeNextUpdate?: () => void;
 
@@ -44,5 +45,8 @@ export class MemoryTable implements CallsTable {
   }
   async setPresence(agentId: string, p: Presence) {
     this.presence.set(agentId, p);
+  }
+  async advanceRotation(queueId: string, memberCount: number) {
+    this.rotation[queueId] = ((this.rotation[queueId] ?? 0) + 1) % Math.max(1, memberCount);
   }
 }

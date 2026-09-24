@@ -10,6 +10,8 @@ export interface MachineContext {
   now: number;
   settings: PhoneSettings;
   agents: Agent[];
+  /** Round-robin starting points per queue (old phone: queues.last_dialed_index). */
+  rotation?: Record<string, number>;
 }
 
 export interface StepResult {
@@ -44,6 +46,7 @@ export function cloneCall(c: Call): Call {
     ...(c.deadline && { deadline: { ...c.deadline } }),
     ...(c.participants && { participants: [...c.participants] }),
     ...(c.pendingForwards && { pendingForwards: c.pendingForwards.map((f) => ({ ...f })) }),
+    ...(c.ringPlan && { ringPlan: { ...c.ringPlan, order: [...c.ringPlan.order] } }),
     ...(c.transfer && {
       transfer: { ...c.transfer, target: { ...c.transfer.target }, ringingAgentIds: [...c.transfer.ringingAgentIds] },
     }),
@@ -184,6 +187,7 @@ export function stopRinging(call: Call, fx: Effect[]) {
   call.ringingAgentIds = [];
   call.pendingForwards = undefined;
   call.ringEndsAt = undefined;
+  call.ringPlan = undefined;
 }
 
 /** Park: caller on hold with no agent; anyone can pick them up. */

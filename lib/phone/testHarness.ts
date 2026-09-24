@@ -21,9 +21,11 @@ export const agents = (): Agent[] => [
 export function harness(start = OPEN, team = agents(), settings: PhoneSettings = DEMO_SETTINGS) {
   let now = start;
   let effects: Effect[] = [];
-  const ctx = (): MachineContext => ({ now, settings, agents: team });
+  const rotation: Record<string, number> = {};
+  const ctx = (): MachineContext => ({ now, settings, agents: team, rotation });
   const applyPresence = (fx: Effect[]) => {
     for (const e of fx) {
+      if (e.type === "advance_rotation") rotation[e.queueId] = ((rotation[e.queueId] ?? 0) + 1) % Math.max(1, e.memberCount);
       if (e.type === "set_presence") {
         const a = team.find((x) => x.id === e.agentId);
         if (a) a.presence = e.presence;
@@ -40,8 +42,8 @@ export function harness(start = OPEN, team = agents(), settings: PhoneSettings =
     },
     team,
     presence: (id: string) => team.find((a) => a.id === id)?.presence,
-    inbound() {
-      const r = startInbound("call-1", "+18455550111", ctx());
+    inbound(opts: { preferredAgentId?: string } = {}) {
+      const r = startInbound("call-1", "+18455550111", ctx(), opts);
       h.call = r.call;
       effects = r.effects;
       applyPresence(effects);

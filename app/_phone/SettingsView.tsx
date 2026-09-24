@@ -19,6 +19,7 @@ const PROMPT_LABEL: Record<PromptId, string> = {
   please_hold: "Please hold",
   callback_offer: "Callback offer (nobody free)",
   callback_confirmed: "Callback confirmed",
+  no_agents: "Nobody available (goodbye)",
 };
 
 const longDate = new Intl.DateTimeFormat("en-US", {

@@ -17,6 +17,10 @@ export interface Agent {
   queueIds: string[];
   /** Ring the agent's own phone too (old phone: user_phone_prefs forward_*). */
   forward?: AgentForward;
+  /** Ring order within a queue: lower rings first (old phone: queue_members.priority). */
+  priority?: number;
+  /** When they last became free, for "longest idle" ringing (ms). */
+  idleSince?: number;
 }
 
 /**
@@ -163,6 +167,15 @@ export interface Call {
   declinedAgentIds: string[];
   /** When the current ring runs out (forwards can fall due before that). */
   ringEndsAt?: number;
+  /** One-at-a-time ringing: who rings, in order, and who is next. */
+  ringPlan?: { queueId: string; order: string[]; next: number };
+  /**
+   * Who should ring first if they are free: the number's own agent, or the
+   * agent this caller last spoke with (decided by the webhook, see startInbound).
+   */
+  preferredAgentId?: string;
+  /** Already overflowed to another queue once (never chains further). */
+  overflowed?: boolean;
   /** Own-phone forwards that fall due during the current ring. */
   pendingForwards?: { agentId: string; to: string; at: number }[];
   /** Who answered (inbound) or who dialed (outbound). */
@@ -236,7 +249,8 @@ export type PromptId =
   | "voicemail_greeting"
   | "please_hold"
   | "callback_offer"
-  | "callback_confirmed";
+  | "callback_confirmed"
+  | "no_agents";
 
 /** What the machine asks the outside world (the carrier, the app) to do. */
 export type Effect =
@@ -254,6 +268,8 @@ export type Effect =
   | { type: "hang_up_caller" }
   | { type: "hang_up_agent"; agentId: string }
   | { type: "set_presence"; agentId: string; presence: Presence }
+  /** Round robin: the queue's starting point moves on by one (old phone: bump_queue_round_robin). */
+  | { type: "advance_rotation"; queueId: string; memberCount: number }
   /** Save a callback request for the team (old phone: callbacks row, due now, unassigned). */
   | { type: "create_callback"; source: "caller_requested" | "menu"; from: string; lang: Lang }
   | { type: "hold_caller" }

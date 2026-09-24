@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { needsCallback } from "./callMachine";
+import { DEMO_SETTINGS, type PhoneSettings } from "./settings";
 import { AFTER_CANDLES, CLOSED, HOLIDAY, OPEN, agents, harness } from "./testHarness";
 import type { Call, CallInput } from "./types";
 
@@ -261,7 +262,23 @@ describe("safety rules hold for ANY sequence of events", () => {
         }
         return a;
       });
-      const h = harness(starts[Math.floor(rand() * starts.length)], team);
+      // Any ring order and any overflow the old phone allowed.
+      const strategies = ["ring_all", "linear", "round_robin", "longest_idle"] as const;
+      const overflows = [undefined, { action: "hangup" as const }, { action: "queue" as const, queueId: "backup" }];
+      const settings: PhoneSettings = {
+        ...DEMO_SETTINGS,
+        queue: {
+          ...DEMO_SETTINGS.queue,
+          strategy: strategies[Math.floor(rand() * strategies.length)],
+          overflow: overflows[Math.floor(rand() * overflows.length)],
+          callbackOffer: rand() < 0.2,
+        },
+        otherQueues: [{ id: "backup", name: "Backup", ringSeconds: 20, overflow: { action: "queue", queueId: DEMO_SETTINGS.queue.id } }],
+      };
+      for (const a of team) if (a.id === "c") a.queueIds = [...a.queueIds, "backup"];
+      // Sometimes nobody at all is free (callback offer, overflow with nobody to ring).
+      if (rand() < 0.15) for (const a of team) a.presence = "away";
+      const h = harness(starts[Math.floor(rand() * starts.length)], team, settings);
       if (rand() < 0.75) h.inbound();
       else h.outbound();
       let everAnswered = false;
@@ -279,6 +296,9 @@ describe("safety rules hold for ANY sequence of events", () => {
         if (c.state === "ended") seen.add(`ended ${c.endReason}`);
         if (c.state === "ringing" && c.answeredAt !== undefined) seen.add("re-ringing a held caller");
         if (c.timeline.some((t) => t.kind === "forwarded")) seen.add("forwarded to own phone");
+        if (c.ringPlan && c.ringPlan.next > 1) seen.add("one at a time, second person");
+        if (c.overflowed) seen.add("overflowed to another queue");
+        if (c.menuStep === "callback_offer") seen.add("callback offer");
         const broken = brokenRule(c, everAnswered);
         if (broken) expect.fail(`seed ${seed}, step ${i}, state ${c.state}: ${broken}`);      }
     }
@@ -290,6 +310,9 @@ describe("safety rules hold for ANY sequence of events", () => {
       "three-way",
       "re-ringing a held caller",
       "forwarded to own phone",
+      "one at a time, second person",
+      "overflowed to another queue",
+      "callback offer",
       "ended transferred",
       "ended voicemail",
       "ended timed_out",
@@ -330,6 +353,7 @@ function brokenRule(c: Call, everAnswered: boolean): string | null {
   }
   // 6. Own-phone forwards only wait while the call is ringing.
   if (c.state !== "ringing" && (c.pendingForwards || c.ringEndsAt !== undefined)) return "forwarding left over after the ring";
+  if (c.state !== "ringing" && c.ringPlan) return "a one-at-a-time ring list left over after the ring";
   // 5. A parked caller is on hold with no agent; transfers and invites only exist mid-call.
   if (c.state === "parked" && (c.onHold !== true || c.agentId)) return "a parked caller is not properly on hold";
   if ((c.transfer || c.inviting) && c.state !== "answered") return "a transfer or invite outside a live call";

@@ -26,6 +26,7 @@ import { stepInCall } from "./inCall";
 import {
   END_REASON_LABEL,
   advanceRing,
+  agentName,
   armRingDeadline,
   cloneCall,
   end,
@@ -40,13 +41,25 @@ import {
   type MachineContext,
   type StepResult,
 } from "./machineParts";
+import { queueById, ringOrder } from "./ringOrder";
+import type { QueueSettings } from "./settings";
 import type { Call, CallInput, Effect, Lang, PromptId, TimerKind } from "./types";
 
 export { END_REASON_LABEL, type MachineContext, type StepResult };
 
 /* ---------- Starting a call ---------- */
 
-export function startInbound(id: string, from: string, ctx: MachineContext): StepResult {
+/**
+ * `preferredAgentId`: who should ring first if free â€” the dialed number's own
+ * agent, else the agent this caller last spoke with (old phone: assigned agent
+ * beats caller history). The webhook works it out; the engine applies it.
+ */
+export function startInbound(
+  id: string,
+  from: string,
+  ctx: MachineContext,
+  opts: { preferredAgentId?: string } = {},
+): StepResult {
   const call: Call = {
     id,
     direction: "inbound",
@@ -58,6 +71,7 @@ export function startInbound(id: string, from: string, ctx: MachineContext): Ste
     ringingAgentIds: [],
     declinedAgentIds: [],
     timeline: [],
+    ...(opts.preferredAgentId && { preferredAgentId: opts.preferredAgentId }),
   };
   const fx: Effect[] = [];
   log(call, ctx.now, "received");
@@ -201,6 +215,7 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
       call.ringingAgentIds = [];
       call.pendingForwards = undefined;
       call.ringEndsAt = undefined;
+      call.ringPlan = undefined;
       call.state = "answered";
       call.answeredAt ??= now;
       call.agentId = input.agentId;
@@ -235,9 +250,13 @@ export function step(current: Call, input: CallInput, ctx: MachineContext): Step
       const name = ctx.agents.find((a) => a.id === input.agentId)?.name ?? input.agentId;
       log(call, now, input.type === "agent_declined" ? "declined" : "agent_left", name);
       if (call.ringingAgentIds.length === 0) {
-        log(call, now, "nobody_left_ringing");
-        if (call.answeredAt !== undefined) parkCall(call, ctx, fx);
-        else goToVoicemail(call, ctx, fx, "all_busy");
+        if (call.answeredAt !== undefined) {
+          log(call, now, "nobody_left_ringing");
+          parkCall(call, ctx, fx);
+        } else if (!ringNext(call, ctx, fx)) {
+          log(call, now, "nobody_left_ringing");
+          overflow(call, ctx, fx);
+        }
       }
       return { call, effects: fx };
     }
@@ -364,8 +383,9 @@ function onTimer(call: Call, kind: TimerKind, ctx: MachineContext, fx: Effect[])
         }
         return;
       }
-      log(call, now, "ring_no_answer", `Nobody answered in ${ctx.settings.queue.ringSeconds}s`);
-      goToVoicemail(call, ctx, fx, "all_busy");
+      if (ringNext(call, ctx, fx)) return; // one-at-a-time: the next person rings
+      log(call, now, "ring_no_answer", "Nobody answered");
+      overflow(call, ctx, fx);
       return;
     case "voicemail":
       log(call, now, "voicemail_timeout", "No message was saved");
@@ -405,19 +425,19 @@ function chooseLanguage(call: Call, lang: Lang, ctx: MachineContext, fx: Effect[
   setDeadline(call, "menu", ctx.now, ctx.settings.menuSeconds);
 }
 
-/** Ring every available agent in the queue at once. */
-function enterQueue(call: Call, ctx: MachineContext, fx: Effect[]) {
-  const { queue } = ctx.settings;
+/** Ring the queue: everyone at once, or one at a time (see ringOrder.ts). */
+function enterQueue(call: Call, ctx: MachineContext, fx: Effect[], queue: QueueSettings = ctx.settings.queue) {
   call.queueId = queue.id;
   call.menuStep = undefined;
-  const targets = ctx.agents
-    .filter(
-      (a) =>
-        a.presence === "available" &&
-        a.queueIds.includes(queue.id) &&
-        !call.declinedAgentIds.includes(a.id),
-    )
-    .map((a) => a.id);
+  const plan = ringOrder(call, queue, ctx);
+  const targets = plan.order;
+  if (plan.rotate) fx.push({ type: "advance_rotation", queueId: queue.id, memberCount: targets.length });
+  if (plan.languageOrdered) log(call, ctx.now, "language_ordered", "Spanish speakers first");
+  if (plan.preferred) {
+    const who = agentName(ctx, call.preferredAgentId!);
+    const why = { moved: `${who} rings first`, not_available: `${who} isn't available`, language: `${who} doesn't speak Spanish` };
+    log(call, ctx.now, "preferred_agent", why[plan.preferred]);
+  }
 
   if (targets.length === 0) {
     log(call, ctx.now, "nobody_available", `No one available in ${queue.name}`);
@@ -430,13 +450,71 @@ function enterQueue(call: Call, ctx: MachineContext, fx: Effect[]) {
       log(call, ctx.now, "menu", "Callback offer");
       return;
     }
-    goToVoicemail(call, ctx, fx, "all_busy");
+    overflow(call, ctx, fx);
     return;
   }
 
   play(fx, "please_hold", call.lang);
-  startRinging(call, ctx, fx, targets, queue.ringSeconds);
-  log(call, ctx.now, "ringing", `${targets.length} agent${targets.length === 1 ? "" : "s"}`);
+  if (plan.strategy === "ring_all") {
+    startRinging(call, ctx, fx, targets, queue.ringSeconds);
+    log(call, ctx.now, "ringing", `${targets.length} agent${targets.length === 1 ? "" : "s"}`);
+    return;
+  }
+  startRinging(call, ctx, fx, [targets[0]], queue.ringSeconds);
+  call.ringPlan = { queueId: queue.id, order: targets, next: 1 };
+  log(call, ctx.now, "ringing", `${agentName(ctx, targets[0])} (1 of ${targets.length})`);
+}
+
+/**
+ * One-at-a-time ringing: stop whoever is ringing and ring the next person on
+ * the list who is still available and hasn't declined. False when the list is
+ * used up (or the queue rings everyone at once).
+ */
+function ringNext(call: Call, ctx: MachineContext, fx: Effect[]): boolean {
+  const plan = call.ringPlan;
+  if (!plan) return false;
+  const queue = queueById(ctx, plan.queueId) ?? ctx.settings.queue;
+  let i = plan.next;
+  while (i < plan.order.length) {
+    const id = plan.order[i++];
+    const a = ctx.agents.find((x) => x.id === id);
+    if (a?.presence === "available" && !call.declinedAgentIds.includes(id)) {
+      stopRinging(call, fx);
+      startRinging(call, ctx, fx, [id], queue.ringSeconds);
+      call.ringPlan = { ...plan, next: i };
+      log(call, ctx.now, "ringing", `${a.name} (${i} of ${plan.order.length})`);
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Nobody answered (or nobody could be rung): the queue's overflow action, as
+ * in the old phone â€” voicemail (default), a goodbye, or one other queue.
+ */
+function overflow(call: Call, ctx: MachineContext, fx: Effect[]) {
+  const queue = queueById(ctx, call.queueId) ?? ctx.settings.queue;
+  const action = queue.overflow?.action ?? "voicemail";
+  const target = queueById(ctx, queue.overflow?.queueId);
+  if (action === "queue" && target && target.id !== queue.id && !call.overflowed) {
+    stopRinging(call, fx);
+    call.overflowed = true;
+    call.declinedAgentIds = [];
+    log(call, ctx.now, "overflow", `To ${target.name}`);
+    enterQueue(call, ctx, fx, target);
+    return;
+  }
+  if (action === "hangup") {
+    stopRinging(call, fx);
+    play(fx, "no_agents", call.lang);
+    fx.push({ type: "hang_up_caller" });
+    log(call, ctx.now, "overflow", "Nobody available: goodbye");
+    end(call, ctx.now, "missed", fx);
+    return;
+  }
+  // voicemail â€” also when a second queue would have to overflow to a third.
+  goToVoicemail(call, ctx, fx, "all_busy");
 }
 
 /** The caller asked to be called back: save it, thank them, end the call (old phone: completed). */
