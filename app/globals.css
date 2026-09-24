@@ -1735,7 +1735,8 @@ kbd {
 .dock {
   position: fixed;
   right: 20px;
-  bottom: 20px;
+  /* Above the reply box, so the Send button is never covered. */
+  bottom: 112px;
   z-index: 70;
   display: grid;
   gap: 10px;
@@ -1980,9 +1981,12 @@ kbd {
   .content > .settings-grid {
     padding: 16px 16px 120px;
   }
+  /* On a phone the call bar sits at the top, like a phone's own in-call banner. */
   .dock {
-    right: 16px;
-    bottom: calc(76px + env(safe-area-inset-bottom));
+    top: calc(8px + env(safe-area-inset-top));
+    right: 8px;
+    bottom: auto;
+    width: calc(100vw - 16px);
   }
   .toasts {
     bottom: calc(80px + env(safe-area-inset-bottom));
