@@ -26,7 +26,7 @@ describe("callback offer", () => {
     const steps = scriptFor(h.call, h.effects, h.now, DEMO_SETTINGS.voicemailMaxSeconds);
     expect(steps).toEqual([
       { kind: "say", text: PROMPTS.callback_offer.en, lang: "en", voiceLang: "en-US" },
-      { kind: "gather", timeoutSec: 7 },
+      { kind: "gather", timeoutSec: 7, maxDigits: 1, finishOnKey: "#" },
     ]);
   });
 

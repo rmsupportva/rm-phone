@@ -5,6 +5,8 @@
  * vendor SDK, so it can move into CareHub (or a server) unchanged.
  */
 
+import type { PromptRef } from "./ivr";
+
 export type Lang = "en" | "es";
 
 export type Presence = "available" | "busy" | "wrap_up" | "away" | "offline";
@@ -162,6 +164,14 @@ export interface Call {
   /** Inbound only: the hours decision made when the call arrived. */
   hoursState?: HoursState;
   menuStep?: MenuStep;
+  /** Where the caller is in the phone menu (see ivr.ts), while state is "menu". */
+  menu?: { nodeId: string; prompt?: PromptRef; maxDigits: number; speechHints?: string[] };
+  /** Steps taken through the phone menu (old phone: at most 25). */
+  ivrSteps?: number;
+  /** A menu's own voicemail greeting, when it isn't the standard one. */
+  voicemailGreeting?: PromptRef;
+  /** A menu "dial" step is ringing: where to go if nobody answers. */
+  ivrDial?: { noAnswer?: string; external?: string };
   queueId?: string;
   ringingAgentIds: string[];
   declinedAgentIds: string[];
@@ -210,6 +220,8 @@ export interface Call {
 /** Something that happened to a call, from the carrier, an agent or a timer. */
 export type CallInput =
   | { type: "caller_pressed"; digit: string }
+  /** Spoken answer to a menu (when the menu allows speech). */
+  | { type: "caller_spoke"; text: string; confidence: number }
   | { type: "agent_answered"; agentId: string }
   | { type: "agent_declined"; agentId: string }
   | { type: "agent_unavailable"; agentId: string }
@@ -253,11 +265,17 @@ export type PromptId =
   | "callback_offer"
   | "callback_confirmed"
   | "no_agents"
-  | "recording_notice";
+  | "recording_notice"
+  | "goodbye"
+  | "error_goodbye"
+  | "callback_menu_confirmed"
+  | "sms_sent";
 
 /** What the machine asks the outside world (the carrier, the app) to do. */
 export type Effect =
-  | { type: "play"; prompt: PromptId; lang: Lang }
+  | { type: "play"; prompt: PromptRef; lang: Lang }
+  /** Text the caller (a menu "send text" step). */
+  | { type: "send_sms"; to: string; body: string }
   | { type: "ring"; agentIds: string[] }
   /** Ring an agent on their own phone (forwarding). Answer / decline report as that agent. */
   | { type: "ring_external_for_agent"; agentId: string; to: string }
@@ -273,7 +291,7 @@ export type Effect =
   | { type: "set_presence"; agentId: string; presence: Presence }
   /** Record the conversation from now on (old phone: record-from-start / calling.record). */
   | { type: "start_recording" }
-  /** Text the caller a 1â€“5 rating request after the call (old phone: post-call feedback). */
+  /** Text the caller a 1–5 rating request after the call (old phone: post-call feedback). */
   | { type: "send_feedback_text"; to: string; lang: Lang }
   /** Round robin: the queue's starting point moves on by one (old phone: bump_queue_round_robin). */
   | { type: "advance_rotation"; queueId: string; memberCount: number }

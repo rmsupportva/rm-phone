@@ -3,6 +3,7 @@
  * features (inCall.ts). Everything here mutates a DRAFT call that step() has
  * already cloned, and pushes effects; nothing talks to the outside world.
  */
+import type { PromptRef } from "./ivr";
 import type { PhoneSettings } from "./settings";
 import type { Agent, Call, Effect, EndReason, Lang, PromptId, TimerKind } from "./types";
 
@@ -47,6 +48,8 @@ export function cloneCall(c: Call): Call {
     ...(c.participants && { participants: [...c.participants] }),
     ...(c.pendingForwards && { pendingForwards: c.pendingForwards.map((f) => ({ ...f })) }),
     ...(c.ringPlan && { ringPlan: { ...c.ringPlan, order: [...c.ringPlan.order] } }),
+    ...(c.menu && { menu: { ...c.menu } }),
+    ...(c.ivrDial && { ivrDial: { ...c.ivrDial } }),
     ...(c.transfer && {
       transfer: { ...c.transfer, target: { ...c.transfer.target }, ringingAgentIds: [...c.transfer.ringingAgentIds] },
     }),
@@ -73,7 +76,7 @@ export function pastMaxCall(call: Call, ctx: MachineContext): boolean {
   return call.answeredAt !== undefined && ctx.now >= call.answeredAt + ctx.settings.maxCallSeconds * 1000;
 }
 
-export function play(fx: Effect[], prompt: PromptId, lang: Lang) {
+export function play(fx: Effect[], prompt: PromptRef, lang: Lang) {
   fx.push({ type: "play", prompt, lang });
 }
 
@@ -190,6 +193,44 @@ export function stopRinging(call: Call, fx: Effect[]) {
   call.ringPlan = undefined;
 }
 
+/**
+ * Send the caller to leave a message. `reason` plays first (e.g. "we're
+ * closed"); `greeting` replaces the standard voicemail greeting (a menu
+ * voicemail step can have its own).
+ */
+export function goToVoicemail(call: Call, ctx: MachineContext, fx: Effect[], reason?: PromptRef, greeting: PromptRef = "voicemail_greeting") {
+  stopRinging(call, fx);
+  call.state = "voicemail";
+  call.menuStep = undefined;
+  call.menu = undefined;
+  if (reason) play(fx, reason, call.lang);
+  play(fx, greeting, call.lang);
+  if (greeting !== "voicemail_greeting") call.voicemailGreeting = greeting;
+  fx.push({ type: "record_voicemail", maxSeconds: ctx.settings.voicemailMaxSeconds });
+  // Greeting + longest message + a little grace for the carrier to report back.
+  const seconds = ctx.settings.voicemailGreetingSeconds + ctx.settings.voicemailMaxSeconds + 15;
+  setDeadline(call, "voicemail", ctx.now, seconds);
+  log(call, ctx.now, "voicemail");
+}
+
+/** Start recording once, if the line records calls; `announce` plays the notice first. */
+export function startRecording(call: Call, ctx: MachineContext, fx: Effect[], announce: boolean) {
+  const rec = ctx.settings.recording;
+  if (!rec || rec.mode !== "all" || call.recordingStarted) return;
+  if (announce && rec.announce) play(fx, "recording_notice", call.lang);
+  fx.push({ type: "start_recording" });
+  call.recordingStarted = true;
+}
+
+/** Say something and hang up. */
+export function sayGoodbye(call: Call, ctx: MachineContext, fx: Effect[], prompt: PromptRef | undefined, reason: EndReason, why: string) {
+  stopRinging(call, fx);
+  if (prompt) play(fx, prompt, call.lang);
+  fx.push({ type: "hang_up_caller" });
+  log(call, ctx.now, "goodbye", why);
+  end(call, ctx.now, reason, fx);
+}
+
 /** Park: caller on hold with no agent; anyone can pick them up. */
 export function parkCall(call: Call, ctx: MachineContext, fx: Effect[], byAgentId?: string) {
   stopRinging(call, fx);
@@ -243,6 +284,8 @@ export function end(call: Call, now: number, reason: EndReason, fx: Effect[]) {
   call.endReason = reason;
   call.deadline = undefined;
   call.menuStep = undefined;
+  call.menu = undefined;
+  call.ivrDial = undefined;
   call.onHold = undefined;
   log(call, now, "ended", END_REASON_LABEL[reason]);
 }

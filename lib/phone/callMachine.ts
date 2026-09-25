@@ -21,7 +21,6 @@
  *  5. When the last ringing agent declines, the caller goes to voicemail
  *     straight away instead of listening to ringing nobody will answer.
  */
-import { evaluateHours } from "./hours";
 import { stepInCall } from "./inCall";
 import {
   END_REASON_LABEL,
@@ -33,24 +32,23 @@ import {
   log,
   parkCall,
   pastMaxCall,
-  play,
+  goToVoicemail,
   setDeadline,
-  startRinging,
-  stopRinging,
+  startRecording,
   unholdCaller,
   type MachineContext,
   type StepResult,
 } from "./machineParts";
-import { queueById, ringOrder } from "./ringOrder";
-import type { QueueSettings } from "./settings";
-import type { Call, CallInput, Effect, Lang, PromptId, TimerKind } from "./types";
+import { menuDialFailed, menuInput, menuTimeout, routeNewCall } from "./menuRunner";
+import { overflow, requestCallback, ringNext } from "./queueRouting";
+import type { Call, CallInput, Effect, TimerKind } from "./types";
 
 export { END_REASON_LABEL, type MachineContext, type StepResult };
 
 /* ---------- Starting a call ---------- */
 
 /**
- * `preferredAgentId`: who should ring first if free â€” the dialed number's own
+ * `preferredAgentId`: who should ring first if free — the dialed number's own
  * agent, else the agent this caller last spoke with (old phone: assigned agent
  * beats caller history). The webhook works it out; the engine applies it.
  */
@@ -75,22 +73,8 @@ export function startInbound(
   };
   const fx: Effect[] = [];
   log(call, ctx.now, "received");
-
-  const hours = evaluateHours(ctx.now, ctx.settings.hours);
-  call.hoursState = hours.state;
-  log(call, ctx.now, "hours_checked", hours.label);
-
-  if (hours.state !== "open") {
-    const prompt: PromptId =
-      hours.state === "holiday" ? "holiday" : hours.state === "early_close" ? "early_close" : "closed";
-    goToVoicemail(call, ctx, fx, prompt);
-    return { call, effects: fx };
-  }
-
-  call.menuStep = "language";
-  play(fx, "welcome_language", call.lang);
-  setDeadline(call, "menu", ctx.now, ctx.settings.menuSeconds);
-  log(call, ctx.now, "menu", "Language menu");
+  // Hours, the number's routing and the phone menu: see menuRunner.ts.
+  routeNewCall(call, ctx, fx);
   return { call, effects: fx };
 }
 
@@ -155,15 +139,6 @@ function feedbackDue(call: Call, ctx: MachineContext): boolean {
   );
 }
 
-/** Start recording once, if the line records calls; `announce` plays the notice first. */
-function startRecording(call: Call, ctx: MachineContext, fx: Effect[], announce: boolean) {
-  const rec = ctx.settings.recording;
-  if (!rec || rec.mode !== "all" || call.recordingStarted) return;
-  if (announce && rec.announce) play(fx, "recording_notice", call.lang);
-  fx.push({ type: "start_recording" });
-  call.recordingStarted = true;
-}
-
 function stepCall(current: Call, input: CallInput, ctx: MachineContext): StepResult {
   const call = cloneCall(current);
   const fx: Effect[] = [];
@@ -200,23 +175,14 @@ function stepCall(current: Call, input: CallInput, ctx: MachineContext): StepRes
         }
         return { call, effects: fx };
       }
-      if (call.menuStep === "language") {
-        if (digit !== "1" && digit !== "2") {
-          log(call, now, "menu_invalid_key", digit);
-          return { call, effects: fx };
-        }
-        chooseLanguage(call, digit === "2" ? "es" : "en", ctx, fx, `Pressed ${digit}`);
-        return { call, effects: fx };
-      }
-      if (digit === "1") {
-        log(call, now, "menu_choice", "Pressed 1: speak with someone");
-        enterQueue(call, ctx, fx);
-      } else if (digit === "2") {
-        log(call, now, "menu_choice", "Pressed 2: leave a message");
-        goToVoicemail(call, ctx, fx);
-      } else {
-        log(call, now, "menu_invalid_key", digit);
-      }
+      if (!call.menu) return unchanged;
+      menuInput(call, ctx, fx, { digits: digit });
+      return { call, effects: fx };
+    }
+
+    case "caller_spoke": {
+      if (call.state !== "menu" || !call.menu) return unchanged;
+      menuInput(call, ctx, fx, { speech: { text: input.text, confidence: input.confidence } });
       return { call, effects: fx };
     }
 
@@ -251,6 +217,7 @@ function stepCall(current: Call, input: CallInput, ctx: MachineContext): StepRes
       call.agentId = input.agentId;
       call.parkedBy = undefined;
       call.parkedAt = undefined;
+      call.ivrDial = undefined;
       unholdCaller(call, fx);
       fx.push({ type: "connect", agentId: input.agentId });
       fx.push({ type: "set_presence", agentId: input.agentId, presence: "busy" });
@@ -280,7 +247,9 @@ function stepCall(current: Call, input: CallInput, ctx: MachineContext): StepRes
       const name = ctx.agents.find((a) => a.id === input.agentId)?.name ?? input.agentId;
       log(call, now, input.type === "agent_declined" ? "declined" : "agent_left", name);
       if (call.ringingAgentIds.length === 0) {
-        if (call.answeredAt !== undefined) {
+        if (call.ivrDial) {
+          menuDialFailed(call, ctx, fx, "Declined");
+        } else if (call.answeredAt !== undefined) {
           log(call, now, "nobody_left_ringing");
           parkCall(call, ctx, fx);
         } else if (!ringNext(call, ctx, fx)) {
@@ -300,6 +269,7 @@ function stepCall(current: Call, input: CallInput, ctx: MachineContext): StepRes
           end(call, now, "abandoned_menu", fx);
           break;
         case "ringing":
+          if (call.ivrDial?.external) fx.push({ type: "hang_up_external" });
           log(call, now, "hung_up", `${who} hung up while ${talked ? "on hold" : "ringing"}`);
           end(call, now, talked ? "completed" : "missed", fx);
           break;
@@ -368,6 +338,23 @@ function stepCall(current: Call, input: CallInput, ctx: MachineContext): StepRes
       return { call, effects: fx };
     }
 
+    // A menu "dial" step to an outside number (transfers are handled in inCall.ts).
+    case "external_answered": {
+      if (call.state !== "ringing" || !call.ivrDial?.external) return unchanged;
+      log(call, now, "transferred", call.ivrDial.external);
+      fx.push({ type: "release_to_external" });
+      call.ivrDial = undefined;
+      end(call, now, "transferred", fx);
+      return { call, effects: fx };
+    }
+
+    case "external_failed":
+    case "external_hung_up": {
+      if (call.state !== "ringing" || !call.ivrDial?.external) return unchanged;
+      menuDialFailed(call, ctx, fx, "The number couldn't be reached");
+      return { call, effects: fx };
+    }
+
     case "far_end_failed": {
       if (call.state !== "dialing" || call.dialPhase === "agent") return unchanged;
       log(call, now, "failed", "The call could not be placed");
@@ -393,15 +380,14 @@ function onTimer(call: Call, kind: TimerKind, ctx: MachineContext, fx: Effect[])
         goToVoicemail(call, ctx, fx);
         return;
       }
-      if (call.menuStep === "language") {
-        chooseLanguage(call, "en", ctx, fx, "No key pressed: English");
-      } else {
-        log(call, now, "menu_choice", "No key pressed: speak with someone");
-        enterQueue(call, ctx, fx);
-      }
+      menuTimeout(call, ctx, fx);
       return;
     case "ring":
       if (advanceRing(call, ctx, fx)) return; // an own-phone forward fell due; still ringing
+      if (call.ivrDial) {
+        menuDialFailed(call, ctx, fx, "Nobody answered");
+        return;
+      }
       if (call.answeredAt !== undefined) {
         // Someone already talked to this caller: never voicemail. Park them.
         if (pastMaxCall(call, ctx)) {
@@ -446,130 +432,6 @@ function onTimer(call: Call, kind: TimerKind, ctx: MachineContext, fx: Effect[])
     case "park":
       return;
   }
-}
-
-function chooseLanguage(call: Call, lang: Lang, ctx: MachineContext, fx: Effect[], detail: string) {
-  call.lang = lang;
-  call.menuStep = "main";
-  log(call, ctx.now, "language", `${lang === "es" ? "Spanish" : "English"} (${detail})`);
-  play(fx, "main_menu", lang);
-  setDeadline(call, "menu", ctx.now, ctx.settings.menuSeconds);
-}
-
-/** Ring the queue: everyone at once, or one at a time (see ringOrder.ts). */
-function enterQueue(call: Call, ctx: MachineContext, fx: Effect[], queue: QueueSettings = ctx.settings.queue) {
-  call.queueId = queue.id;
-  call.menuStep = undefined;
-  const plan = ringOrder(call, queue, ctx);
-  const targets = plan.order;
-  if (plan.rotate) fx.push({ type: "advance_rotation", queueId: queue.id, memberCount: targets.length });
-  if (plan.languageOrdered) log(call, ctx.now, "language_ordered", "Spanish speakers first");
-  if (plan.preferred) {
-    const who = agentName(ctx, call.preferredAgentId!);
-    const why = { moved: `${who} rings first`, not_available: `${who} isn't available`, language: `${who} doesn't speak Spanish` };
-    log(call, ctx.now, "preferred_agent", why[plan.preferred]);
-  }
-
-  if (targets.length === 0) {
-    log(call, ctx.now, "nobody_available", `No one available in ${queue.name}`);
-    if (queue.callbackOffer) {
-      // Old phone: "press 1 for a callback", one key, 6 seconds.
-      call.state = "menu";
-      call.menuStep = "callback_offer";
-      play(fx, "callback_offer", call.lang);
-      setDeadline(call, "menu", ctx.now, ctx.settings.callbackOfferSeconds);
-      log(call, ctx.now, "menu", "Callback offer");
-      return;
-    }
-    overflow(call, ctx, fx);
-    return;
-  }
-
-  // Old phone: the queue conference records from the start, notice first.
-  startRecording(call, ctx, fx, true);
-  play(fx, "please_hold", call.lang);
-  if (plan.strategy === "ring_all") {
-    startRinging(call, ctx, fx, targets, queue.ringSeconds);
-    log(call, ctx.now, "ringing", `${targets.length} agent${targets.length === 1 ? "" : "s"}`);
-    return;
-  }
-  startRinging(call, ctx, fx, [targets[0]], queue.ringSeconds);
-  call.ringPlan = { queueId: queue.id, order: targets, next: 1 };
-  log(call, ctx.now, "ringing", `${agentName(ctx, targets[0])} (1 of ${targets.length})`);
-}
-
-/**
- * One-at-a-time ringing: stop whoever is ringing and ring the next person on
- * the list who is still available and hasn't declined. False when the list is
- * used up (or the queue rings everyone at once).
- */
-function ringNext(call: Call, ctx: MachineContext, fx: Effect[]): boolean {
-  const plan = call.ringPlan;
-  if (!plan) return false;
-  const queue = queueById(ctx, plan.queueId) ?? ctx.settings.queue;
-  let i = plan.next;
-  while (i < plan.order.length) {
-    const id = plan.order[i++];
-    const a = ctx.agents.find((x) => x.id === id);
-    if (a?.presence === "available" && !call.declinedAgentIds.includes(id)) {
-      stopRinging(call, fx);
-      startRinging(call, ctx, fx, [id], queue.ringSeconds);
-      call.ringPlan = { ...plan, next: i };
-      log(call, ctx.now, "ringing", `${a.name} (${i} of ${plan.order.length})`);
-      return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Nobody answered (or nobody could be rung): the queue's overflow action, as
- * in the old phone â€” voicemail (default), a goodbye, or one other queue.
- */
-function overflow(call: Call, ctx: MachineContext, fx: Effect[]) {
-  const queue = queueById(ctx, call.queueId) ?? ctx.settings.queue;
-  const action = queue.overflow?.action ?? "voicemail";
-  const target = queueById(ctx, queue.overflow?.queueId);
-  if (action === "queue" && target && target.id !== queue.id && !call.overflowed) {
-    stopRinging(call, fx);
-    call.overflowed = true;
-    call.declinedAgentIds = [];
-    log(call, ctx.now, "overflow", `To ${target.name}`);
-    enterQueue(call, ctx, fx, target);
-    return;
-  }
-  if (action === "hangup") {
-    stopRinging(call, fx);
-    play(fx, "no_agents", call.lang);
-    fx.push({ type: "hang_up_caller" });
-    log(call, ctx.now, "overflow", "Nobody available: goodbye");
-    end(call, ctx.now, "missed", fx);
-    return;
-  }
-  // voicemail â€” also when a second queue would have to overflow to a third.
-  goToVoicemail(call, ctx, fx, "all_busy");
-}
-
-/** The caller asked to be called back: save it, thank them, end the call (old phone: completed). */
-function requestCallback(call: Call, ctx: MachineContext, fx: Effect[]) {
-  fx.push({ type: "create_callback", source: "caller_requested", from: call.from, lang: call.lang });
-  play(fx, "callback_confirmed", call.lang);
-  fx.push({ type: "hang_up_caller" });
-  log(call, ctx.now, "callback_requested", "Pressed 1: call me back");
-  end(call, ctx.now, "completed", fx);
-}
-
-function goToVoicemail(call: Call, ctx: MachineContext, fx: Effect[], reason?: PromptId) {
-  stopRinging(call, fx);
-  call.state = "voicemail";
-  call.menuStep = undefined;
-  if (reason) play(fx, reason, call.lang);
-  play(fx, "voicemail_greeting", call.lang);
-  fx.push({ type: "record_voicemail", maxSeconds: ctx.settings.voicemailMaxSeconds });
-  // Greeting + longest message + a little grace for the carrier to report back.
-  const seconds = ctx.settings.voicemailGreetingSeconds + ctx.settings.voicemailMaxSeconds + 15;
-  setDeadline(call, "voicemail", ctx.now, seconds);
-  log(call, ctx.now, "voicemail");
 }
 
 /** Calls someone should return: the caller reached out and nobody talked to them. */

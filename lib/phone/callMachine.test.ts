@@ -8,14 +8,14 @@ describe("inbound during office hours", () => {
   it("starts at the language menu", () => {
     const h = harness().inbound();
     expect(h.call.state).toBe("menu");
-    expect(h.call.menuStep).toBe("language");
+    expect(h.call.menu?.nodeId).toBe("language");
     expect(h.call.hoursState).toBe("open");
     expect(h.call.deadline?.kind).toBe("menu");
   });
 
   it("rings every available agent at once after pressing 1, 1", () => {
     const h = harness().inbound().send({ type: "caller_pressed", digit: "1" });
-    expect(h.call.menuStep).toBe("main");
+    expect(h.call.menu?.nodeId).toBe("main");
     h.send({ type: "caller_pressed", digit: "1" });
     expect(h.call.state).toBe("ringing");
     expect(h.call.ringingAgentIds).toEqual(["a", "b"]); // c is away
@@ -88,15 +88,17 @@ describe("inbound during office hours", () => {
   it("with no key pressed: English, then the queue", () => {
     const h = harness().inbound().expire();
     expect(h.call.lang).toBe("en");
-    expect(h.call.menuStep).toBe("main");
+    expect(h.call.menu?.nodeId).toBe("main");
     h.expire();
     expect(h.call.state).toBe("ringing");
   });
 
-  it("ignores wrong keys and keeps waiting", () => {
+  it("a wrong key takes the menu's default, like the old phone (here: English, then the main menu)", () => {
     const h = harness().inbound().send({ type: "caller_pressed", digit: "7" });
     expect(h.call.state).toBe("menu");
-    expect(h.call.menuStep).toBe("language");
+    expect(h.call.lang).toBe("en");
+    expect(h.call.menu?.nodeId).toBe("main");
+    expect(h.kinds()).toContain("menu_invalid_key");
   });
 });
 

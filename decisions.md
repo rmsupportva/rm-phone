@@ -2,6 +2,14 @@
 
 Newest first. Each entry: what was decided, why, and what it costs.
 
+## 2026-09-24: The phone menu is data, with every old step type
+
+- **Decision:** the phone menu is a flow of steps (`lib/phone/ivr.ts`, run by `menuRunner.ts`): menu, play, set_language, hours, agent_check, queue, voicemail, callback, send_sms, dial, hangup. Today's menu (language, then "1 to talk, 2 for a message") is the default flow, so callers hear no change until someone edits it.
+- **Old-phone rules kept (small decisions taken while the owner is away):** a wrong key or no key takes the menu's default option, or repeats the menu when it has none. At most 25 steps per call, then "something went wrong" and hang up. A menu with its own hours step decides after-hours itself; otherwise the number's after-hours action applies (voicemail by default). Spoken choices need confidence ≥ 0.5 and whole-word matches; a pressed key always wins. A dial step rings 5–120 s (30 by default). A menu can't be saved with missing steps, repeated keys or a loop that never waits for the caller.
+- **Numbers can be set to** menu, straight to the queue, straight to voicemail, or no calls.
+- **Bug found and fixed by the new tests:** a menu step dialling an outside number never learned whether that number answered or failed (the transfer code swallowed those events). They now reach the menu step.
+- **Cost:** the survey site's carrier adapter (f0) must render the new caller-script parts: recorded audio, multi-key and spoken gathers, texts from the menu, and outside-number events for dial steps.
+
 ## 2026-09-24: Outgoing calls always show the main caller ID
 
 - **Decision (owner):** every outgoing call shows the chosen main caller ID ((855) 499-3663 today), whether it is placed from the browser, the agent's own cell or the server. `chooseCallerId()` in `lib/phone/outbound.ts` applies to all modes.

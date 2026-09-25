@@ -21,6 +21,10 @@ const PROMPT_LABEL: Record<PromptId, string> = {
   callback_confirmed: "Callback confirmed",
   no_agents: "Nobody available (goodbye)",
   recording_notice: "Recording notice",
+  goodbye: "Goodbye",
+  error_goodbye: "Something went wrong",
+  callback_menu_confirmed: "Callback (from the menu)",
+  sms_sent: "Text sent",
 };
 
 const longDate = new Intl.DateTimeFormat("en-US", {

@@ -66,7 +66,7 @@ describe("an inbound call, webhook by webhook", () => {
     t.wait(gather.kind === "gather" ? gather.timeoutSec : 0);
     // No key: the adapter feeds the menu timer. English is chosen and the main menu plays.
     const next = await t.send({ type: "timer", kind: "menu" });
-    expect(next?.call.menuStep).toBe("main");
+    expect(next?.call.menu?.nodeId).toBe("main");
     expect(t.heard(next)).toEqual(["say", "gather"]);
   });
 

@@ -1,3 +1,4 @@
+import type { IvrFlow } from "./ivr";
 import type { Lang, PromptId } from "./types";
 
 /** "HH:MM" on a 24-hour clock, in the workspace time zone. */
@@ -50,6 +51,19 @@ export interface QueueSettings {
 export interface PhoneSettings {
   mainNumber: string;
   hours: HoursSettings;
+  /**
+   * What the number does with a call (old phone: phone_numbers.routing):
+   * the phone menu (default), straight to the queue, straight to voicemail,
+   * or a goodbye.
+   */
+  routing?: "ivr" | "queue" | "voicemail" | "hangup";
+  /** The phone menu; unset = today's menu (see defaultFlow in ivr.ts). */
+  ivr?: IvrFlow;
+  /**
+   * Closed or holiday (old phone: afterhours_action, default voicemail).
+   * Skipped when the menu has its own "hours" step.
+   */
+  afterHours?: { action: "voicemail" | "hangup" | "queue"; queueId?: string };
   /** The line's main queue. */
   queue: QueueSettings;
   /** Other queues, e.g. an overflow target. */
@@ -73,7 +87,7 @@ export interface PhoneSettings {
   recording?: { mode: "off" | "all"; announce: boolean };
   /**
    * Old phone post_call_feedback_mode: after an answered incoming call of 15 s
-   * or more, text the caller a 1â€“5 rating request (the sender checks mobile
+   * or more, text the caller a 1–5 rating request (the sender checks mobile
    * number, consent and "not more than once a week").
    */
   postCallFeedback?: boolean;
@@ -176,9 +190,25 @@ export const PROMPTS: Record<PromptId, Record<Lang, string>> = {
     en: "This call may be recorded. Esta llamada puede ser grabada.",
     es: "This call may be recorded. Esta llamada puede ser grabada.",
   },
+  goodbye: {
+    en: "Thank you for calling. Goodbye.",
+    es: "Gracias por llamar. Adiós.",
+  },
+  error_goodbye: {
+    en: "We're sorry, something went wrong. Goodbye.",
+    es: "Lo sentimos, algo salió mal. Adiós.",
+  },
+  callback_menu_confirmed: {
+    en: "Thanks, we'll call you right back. Goodbye.",
+    es: "Gracias, le devolveremos la llamada enseguida. Adiós.",
+  },
+  sms_sent: {
+    en: "We just sent you a text. Goodbye.",
+    es: "Le acabamos de enviar un mensaje de texto. Adiós.",
+  },
   no_agents: {
     en: "Thank you for calling. Nobody is available to take your call right now. Please call again later. Goodbye.",
-    es: "Gracias por llamar. No hay nadie disponible para atender su llamada en este momento. Por favor llame mÃ¡s tarde. AdiÃ³s.",
+    es: "Gracias por llamar. No hay nadie disponible para atender su llamada en este momento. Por favor llame más tarde. Adiós.",
   },
   callback_confirmed: {
     en: "Thank you. We'll call you back as soon as we can. Goodbye.",

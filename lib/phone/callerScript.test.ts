@@ -11,14 +11,14 @@ describe("what an inbound caller hears", () => {
   it("first: the welcome, then one key with a timeout just past the menu deadline", () => {
     const steps = script(harness(OPEN).inbound());
     expect(steps[0]).toEqual({ kind: "say", text: PROMPTS.welcome_language.en, lang: "en", voiceLang: "en-US" });
-    expect(steps[1]).toEqual({ kind: "gather", timeoutSec: DEMO_SETTINGS.menuSeconds + 1 });
+    expect(steps[1]).toEqual({ kind: "gather", timeoutSec: DEMO_SETTINGS.menuSeconds + 1, maxDigits: 1, finishOnKey: "#" });
   });
 
   it("the timeout counts down: a re-render later waits only for what's left", () => {
     const h = harness(OPEN).inbound().wait(10);
     expect(scriptFor(h.call, [], h.now, MAX)).toEqual([
       { kind: "say", text: PROMPTS.welcome_language.en, lang: "en", voiceLang: "en-US" },
-      { kind: "gather", timeoutSec: DEMO_SETTINGS.menuSeconds - 10 + 1 },
+      { kind: "gather", timeoutSec: DEMO_SETTINGS.menuSeconds - 10 + 1, maxDigits: 1, finishOnKey: "#" },
     ]);
   });
 

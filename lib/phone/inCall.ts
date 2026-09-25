@@ -131,7 +131,8 @@ export function stepInCall(
       return done;
 
     case "external_answered":
-      if (!t || t.phase !== "ringing" || t.target.kind !== "external") return unchanged;
+      if (!t || t.target.kind !== "external") return null; // not a transfer: a menu dial step (callMachine)
+      if (t.phase !== "ringing") return unchanged;
       t.answeredBy = "external";
       log(call, now, "transfer_answered", t.target.to);
       if (t.mode === "blind" || !t.byAgentId) completeTransfer(call, ctx, fx);
@@ -143,7 +144,7 @@ export function stepInCall(
 
     case "external_failed":
     case "external_hung_up":
-      if (!t || t.target.kind !== "external") return unchanged;
+      if (!t || t.target.kind !== "external") return null; // not a transfer: a menu dial step (callMachine)
       transferFailed(call, ctx, fx, input.type === "external_failed" ? "The number could not be reached" : "They hung up");
       return done;
 
