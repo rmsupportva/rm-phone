@@ -12,7 +12,7 @@
  * "we're closed" before the voicemail greeting).
  */
 import type { PromptRef } from "./ivr";
-import { PROMPTS } from "./settings";
+import { PROMPTS, type PhoneSettings } from "./settings";
 import type { Call, Effect, Lang } from "./types";
 
 export type CallerStep =
@@ -41,18 +41,31 @@ export const roomFor = (call: Pick<Call, "id">) => `rm-${call.id}`;
 /** Seconds of silence after which a recording stops by itself. */
 export const RECORD_SILENCE_SECONDS = 7;
 
+/** Edited wording for built-in messages (settings.prompts). */
+export type PromptOverrides = PhoneSettings["prompts"];
+
 /** Turn a message reference into what the caller hears. */
-export function spoken(ref: PromptRef, lang: Lang): CallerStep {
+export function spoken(ref: PromptRef, lang: Lang, overrides?: PromptOverrides): CallerStep {
   if (typeof ref === "object" && "audio" in ref) return { kind: "play_audio", url: ref.audio };
-  const text = typeof ref === "string" ? PROMPTS[ref][lang] : ref.say[lang];
+  const text = typeof ref === "string" ? (overrides?.[ref]?.[lang] || PROMPTS[ref][lang]) : ref.say[lang];
   return { kind: "say", text, lang, voiceLang: lang === "es" ? "es-US" : "en-US" };
 }
 
-export function scriptFor(call: Call, effects: Effect[], now: number, maxVoicemailSeconds: number): CallerStep[] {
+/**
+ * `voicemail` is the longest message allowed, or that plus the settings'
+ * edited wording (`{ maxVoicemailSeconds, prompts }`).
+ */
+export function scriptFor(
+  call: Call,
+  effects: Effect[],
+  now: number,
+  voicemail: number | { maxVoicemailSeconds: number; prompts?: PromptOverrides },
+): CallerStep[] {
   if (call.direction !== "inbound") return [];
 
+  const { maxVoicemailSeconds, prompts: overrides } = typeof voicemail === "number" ? { maxVoicemailSeconds: voicemail, prompts: undefined } : voicemail;
   const prompts: PromptRef[] = effects.flatMap((e) => (e.type === "play" ? [e.prompt] : []));
-  const say = (ref: PromptRef) => spoken(ref, call.lang);
+  const say = (ref: PromptRef) => spoken(ref, call.lang, overrides);
 
   if (effects.some((e) => e.type === "hang_up_caller") || call.state === "ended") {
     return [...prompts.map(say), { kind: "hangup" }];

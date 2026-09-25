@@ -81,6 +81,8 @@ export type CallState =
 /** "callback_offer": nobody is free and the line offers "press 1 for a callback". */
 export type MenuStep = "language" | "main" | "callback_offer";
 
+export type CallbackSource = "caller_requested" | "menu" | "missed" | "voicemail";
+
 export type EndReason =
   | "completed" // a conversation happened
   | "voicemail" // caller left a message
@@ -295,8 +297,11 @@ export type Effect =
   | { type: "send_feedback_text"; to: string; lang: Lang }
   /** Round robin: the queue's starting point moves on by one (old phone: bump_queue_round_robin). */
   | { type: "advance_rotation"; queueId: string; memberCount: number }
-  /** Save a callback request for the team (old phone: callbacks row, due now, unassigned). */
-  | { type: "create_callback"; source: "caller_requested" | "menu"; from: string; lang: Lang }
+  /**
+   * Save a callback for the team (old phone: callbacks row, due now, unassigned).
+   * "missed" / "voicemail" come from `missedCallbacks`; the store keeps one open per number.
+   */
+  | { type: "create_callback"; source: CallbackSource; from: string; lang: Lang }
   | { type: "hold_caller" }
   | { type: "unhold_caller" }
   /** Put another agent into the live call (transfer target, VA). */

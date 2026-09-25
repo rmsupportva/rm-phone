@@ -120,9 +120,14 @@ export function startOutbound(
 
 export function step(current: Call, input: CallInput, ctx: MachineContext): StepResult {
   const result = stepCall(current, input, ctx);
-  // After-call rating text, the moment an answered incoming call ends.
-  if (current.state !== "ended" && result.call.state === "ended" && feedbackDue(result.call, ctx)) {
-    result.effects.push({ type: "send_feedback_text", to: result.call.from, lang: result.call.lang });
+  if (current.state !== "ended" && result.call.state === "ended") {
+    const ended = result.call;
+    // After-call rating text, the moment an answered incoming call ends.
+    if (feedbackDue(ended, ctx)) result.effects.push({ type: "send_feedback_text", to: ended.from, lang: ended.lang });
+    // Nobody talked to them: onto the callback list, so someone calls back.
+    if (ctx.settings.missedCallbacks && ended.direction === "inbound" && (ended.endReason === "missed" || ended.endReason === "voicemail")) {
+      result.effects.push({ type: "create_callback", source: ended.endReason, from: ended.from, lang: ended.lang });
+    }
   }
   return result;
 }

@@ -91,6 +91,18 @@ export interface PhoneSettings {
    * number, consent and "not more than once a week").
    */
   postCallFeedback?: boolean;
+  /**
+   * Put every missed incoming call and every voicemail on the callback list,
+   * so someone calls them back (one open callback per number).
+   */
+  missedCallbacks?: boolean;
+  /**
+   * Old phone "sticky agent" (on by default, 30 days): the person who last
+   * talked to this number rings first. The server looks them up; unset = off.
+   */
+  returningCallers?: { withinDays: number };
+  /** Your own wording for any built-in message (unset = the standard text in PROMPTS). */
+  prompts?: Partial<Record<PromptId, Record<Lang, string>>>;
   /** How long a transfer target rings before the transfer is called off. */
   transferSeconds: number;
   /** How long someone being added to a call (e.g. a VA) rings. */
@@ -146,6 +158,8 @@ export const DEMO_SETTINGS: PhoneSettings = {
   inviteSeconds: 18,
   inviteFirstSeconds: 8,
   parkSeconds: 5 * 60,
+  missedCallbacks: true,
+  returningCallers: { withinDays: 30 },
 };
 
 /** What the caller hears. The real build swaps these for recorded audio. */
