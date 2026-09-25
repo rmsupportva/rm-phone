@@ -2,6 +2,22 @@
 
 Newest first. Each entry: what was decided, why, and what it costs.
 
+## 2026-09-25: The 15 improvements — what's built, what's split, what waits
+
+- **Owner asked to add the 15 improvements.** An audit of the survey site's /voice found real calls, voicemail, callbacks and wrap-up live, while texts, contacts, the Team dashboard and settings were still preview data. So most items mean making the preview real.
+- **Built by this session (branch `phone-15` on the survey site, not live):**
+  - #11: missed incoming calls and voicemails go on the callback list, one open callback per number (repeats are noted on it). On by default.
+  - #5: returning callers ring the last person who talked to them first. Old-phone rule: on, 30 days, fail-open, Spanish callers keep Spanish speakers first.
+  - #14: settings saved in the database, checked before use, never breaking a call (defaults + error report if unreadable), editable wording for every message. Menu dial steps may only call US numbers (toll-fraud guard).
+  - #13: live numbers for the Team page.
+  - #10, #9, #1, #4: real contacts with several numbers, a CareHub card (read-only, logged as PHI access), CSV import with a preview, and merging duplicates.
+- **Split:** the /voice screens that use these (dialer suggestions, settings screens, Team Live tab, voicemail player, notifications and shortcuts, the CareHub card on the call screen) are the other session's (f0). #2 Call VA ships with f0's VA sign-in, which needs the owner's direct OK.
+- **Waiting for the owner:** real texting (#6 sending, #7 pictures, #8 assign/close). It is a bigger decision: provider, 10DLC registration, cost, and messages reaching families.
+- **Small decisions taken:**
+  - A missed call from a hidden or non-US number isn't added to the callback list, because it can't be called back.
+  - Contacts are matched by name for duplicates. A number belongs to one contact only, and saving a number another contact has is refused, never moved.
+  - Import and merge are for phone admins; any staff member can add or edit a contact.
+
 ## 2026-09-24: The phone menu is data, with every old step type
 
 - **Decision:** the phone menu is a flow of steps (`lib/phone/ivr.ts`, run by `menuRunner.ts`): menu, play, set_language, hours, agent_check, queue, voicemail, callback, send_sms, dial, hangup. Today's menu (language, then "1 to talk, 2 for a message") is the default flow, so callers hear no change until someone edits it.
