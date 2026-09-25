@@ -2,6 +2,20 @@
 
 Newest first. Each entry: what was decided, why, and what it costs.
 
+## 2026-09-25: The real phone takes this site's design
+
+- **Decision (owner, directly):** the survey site's /voice gets this practice site's look (Google Voice style). It replaces the earlier "keep the /voice design" rule. Every feature and option stays; only layout and look change.
+- **How (branch `phone-look` on the survey site, not live yet):**
+  - One menu (PhoneMenu) across Phone, Team and Phone settings: Make a call, Calls, Texts, Voicemail, Callbacks, Contacts, Team, Phone settings.
+  - Calls, Texts and Contacts show the list and the open item side by side.
+  - The call is a floating card (full screen on a phone).
+  - Styles are in app/voice/voice.css, scoped to the phone pages, tokens only.
+- **Small decisions taken:**
+  - The greeting stays as the page heading.
+  - The "at a glance" tiles become counts on the menu items.
+  - On phones the bottom bar keeps only the five phone tabs; Team stays in the site's top bar and Phone settings stays inside Team.
+- **Checking:** the owner chose to check it on the live site after deploy rather than on a local test server.
+
 ## 2026-09-25: The 15 improvements — what's built, what's split, what waits
 
 - **Owner asked to add the 15 improvements.** An audit of the survey site's /voice found real calls, voicemail, callbacks and wrap-up live, while texts, contacts, the Team dashboard and settings were still preview data. So most items mean making the preview real.
